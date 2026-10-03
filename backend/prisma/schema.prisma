@@ -1,0 +1,103 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  firstName String
+  lastName  String
+  role      String   @default("client") // client / admin
+  createdAt DateTime @default(now())
+
+
+  // Personal & Health data (from onboarding)
+  country   String   @default("Morocco")
+  age       Int?
+  gender    String?  // male / female
+  height    Int?     // cm
+  weight    Int?     // kg
+
+  // Lifestyle & Goals
+  goal      String?  // weight_loss / weight_gain / health / sport
+  lifestyle String?  // active / sedentary / elderly
+  walksRegularly Boolean @default(false)
+
+  // Budget & Culture
+  weeklyBudget Int?  // MAD
+  foodPreferences String? // comma-separated or JSON string
+  foodDislikes    String?
+
+  // Family
+  familyMembersCount Int? @default(1)
+  bmi             Float?
+  dailyCalories   Int?
+  tdee            Int?
+  proteinGrams    Int?
+  carbGrams       Int?
+  fatGrams        Int?
+  waterMl         Int?
+  idealWeightMin  Float?
+  idealWeightMax  Float?
+  onboardingCompleted Boolean @default(false)
+
+  healthLogs   HealthLog[]
+  weekPlans    WeekPlan[]
+}
+
+model Recipe {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  imageUrl    String?
+  prepTimeMinutes Int?
+  calories    Int?
+  servingGrams Int    @default(250)
+  isMoroccan  Boolean  @default(false)
+  mealType    String   // breakfast / lunch / dinner / snack
+  ingredients String   // JSON string list
+  instructions String?
+  createdAt   DateTime @default(now())
+
+  weekPlanMeals WeekPlanMeal[]
+}
+
+model WeekPlan {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  weekStart DateTime
+  createdAt DateTime @default(now())
+
+  meals     WeekPlanMeal[]
+}
+
+model WeekPlanMeal {
+  id         Int      @id @default(autoincrement())
+  weekPlanId Int
+  weekPlan   WeekPlan @relation(fields: [weekPlanId], references: [id])
+  recipeId   Int
+  recipe     Recipe   @relation(fields: [recipeId], references: [id])
+  dayOfWeek  Int      // 0-6
+  mealType   String   // breakfast / lunch / dinner / snack
+  servings   Float    @default(1)
+}
+
+model HealthLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  date      DateTime @default(now())
+  waterGlasses  Int  @default(0)
+  vegetableServings Int @default(0)
+  sleepHours    Float?
+  walkedMinutes Int   @default(0)
+  points        Int   @default(0)
+  mealsEaten    String @default("[]")
+}
