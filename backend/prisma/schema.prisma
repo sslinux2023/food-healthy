@@ -49,6 +49,8 @@ model User {
 
   healthLogs   HealthLog[]
   weekPlans    WeekPlan[]
+  shoppingItems ShoppingItem[]
+  healthScores HealthScore[]
 }
 
 model Recipe {
@@ -58,7 +60,11 @@ model Recipe {
   imageUrl    String?
   prepTimeMinutes Int?
   calories    Int?
+  proteinGrams Int?
+  carbGrams Int?
+  fatGrams Int?
   servingGrams Int    @default(250)
+  tags        String   @default("[]")
   isMoroccan  Boolean  @default(false)
   mealType    String   // breakfast / lunch / dinner / snack
   ingredients String   // JSON string list
@@ -87,6 +93,7 @@ model WeekPlanMeal {
   dayOfWeek  Int      // 0-6
   mealType   String   // breakfast / lunch / dinner / snack
   servings   Float    @default(1)
+  reason     String   @default("")
 }
 
 model HealthLog {
@@ -100,4 +107,36 @@ model HealthLog {
   walkedMinutes Int   @default(0)
   points        Int   @default(0)
   mealsEaten    String @default("[]")
+}
+
+model ShoppingItem {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weekPlanId   Int?
+  name         String   @db.VarChar(191)
+  quantity     Float
+  unit         String   @default("portion") @db.VarChar(64)
+  source       String   @default("plan") @db.VarChar(16)
+  isChecked    Boolean  @default(false)
+  isDismissed  Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, weekPlanId, name, unit, source])
+  @@index([userId, weekPlanId, isDismissed])
+}
+
+model HealthScore {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date      DateTime
+  score     Int
+  bmiPoints   Int      @default(0)
+  waterPoints Int      @default(0)
+  mealsPoints Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, date])
+  @@index([userId, date])
 }

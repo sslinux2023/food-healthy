@@ -48,7 +48,8 @@
     "finishSetup": "Finish Setup",
     "saving": "Saving...",
     "failed": "Onboarding failed",
-    "unknownError": "Unknown error"
+    "unknownError": "Unknown error",
+    "bmiGainWarning": "Your BMI is {{bmi}}. You are above the healthy range; consider Lose Weight or Maintain first. You can still keep this goal."
   },
   "dashboard": {
     "profileReady": "Your profile is ready!",
@@ -72,7 +73,8 @@
       "normal": "Normal",
       "overweight": "Overweight",
       "obese": "Obese"
-    }
+    },
+    "bmiGoalEducation": "Your BMI is {{bmi}}. Your {{goal}} plan adjusts your daily target to {{dailyCalories}} kcal; consider reviewing it with a health professional."
   },
   "weekPlan": {
     "title": "This week's plan",
@@ -128,7 +130,17 @@
     "loading": "Loading your weekly plan...",
     "noPlan": "No weekly plan is available yet.",
     "loadError": "Could not load the weekly plan.",
-    "generateError": "Could not generate the weekly plan. Check that recipes are available."
+    "generateError": "Could not generate the weekly plan. Check that recipes are available.",
+    "reasons": {
+      "highProtein": "High protein supports your nutrition goal.",
+      "budgetFriendly": "Budget-friendly choice.",
+      "moroccan": "A Moroccan favorite.",
+      "gainWeight": "Energy-rich portion supports your gain-weight goal.",
+      "weightManagement": "Balanced portion supports weight management.",
+      "balanced": "A balanced choice for your daily plan."
+    },
+    "emptyHeadline": "Your weekly plan is ready to begin",
+    "emptyAction": "Generate my first plan"
   },
   "dailyCheckIn": {
     "title": "Today's check-in",
@@ -147,5 +159,63 @@
     "loading": "Loading today's check-in...",
     "loadError": "Could not load today's check-in.",
     "updateError": "Could not save your check-in. Please try again."
+  },
+  "shoppingList": {
+    "title": "Shopping list",
+    "open": "Shopping list",
+    "openDescription": "Ingredients for your current weekly plan",
+    "familySize": "Quantities for {{count}} family members",
+    "clearPurchased": "Clear purchased",
+    "back": "Back to dashboard",
+    "loading": "Preparing your shopping list...",
+    "empty": "Your shopping list is clear.",
+    "loadError": "Could not load your shopping list.",
+    "updateError": "Could not update this item.",
+    "clearError": "Could not clear purchased items.",
+    "portions": "portions",
+    "usedFor": "For: {{recipes}}",
+    "estimatedAmounts": "Ingredient amounts are estimates based on planned portions.",
+    "manualPlaceholder": "Add a product...",
+    "quantity": "Quantity",
+    "unit": "Unit",
+    "addItem": "Add item",
+    "manualItems": "Added by you",
+    "units": {
+      "g": "g",
+      "kg": "kg",
+      "ml": "ml",
+      "liter": "L",
+      "piece": "pieces",
+      "portion": "portions"
+    },
+    "emptyHint": "Add ingredients from your weekly plan or type an item above."
+  },
+  "healthScore": {
+    "title": "Daily health score",
+    "loading": "Calculating today's score...",
+    "loadError": "Could not load today's health score.",
+    "dailySnapshot": "Today's wellness snapshot",
+    "ringLabel": "Health score: {{score}} out of 100",
+    "history": "Last 30 days",
+    "historyEmpty": "Your score history will appear after your next daily check-in.",
+    "components": { "bmi": "BMI", "water": "Water", "meals": "Meals" },
+    "bmiUnderweightTip": "Your BMI is {{bmi}} (underweight). A health professional can help you choose a safe weight-gain target.",
+    "bmiOverweightTip": "Your BMI is {{bmi}} (above the healthy range). Losing about {{kilos}} kg would put you near the healthy range (maximum {{maxWeight}} kg).",
+    "waterGoodTip": "Well hydrated today!",
+    "waterTip": "Drink about {{ml}} ml more to reach your water target.",
+    "mealsGoodTip": "Perfect meal tracking today!",
+    "mealsTip": "You have logged {{count}} of 4 planned meals today."
+  },
+  "recipeDetail": {
+    "close": "Close recipe details",
+    "protein": "Protein",
+    "carbs": "Carbohydrates",
+    "fat": "Fat",
+    "macros": "Macronutrient distribution",
+    "estimatedMacros": "Estimated nutrition",
+    "ingredients": "Ingredients",
+    "ingredientsUnavailable": "Ingredient details are not available yet.",
+    "whyTitle": "Why this fits your plan",
+    "proteinFit": "This serving provides about {{percent}}% of your daily protein target."
   }
 }

@@ -36,6 +36,10 @@ function Onboarding({ token, onComplete }: OnboardingProps) {
   const [familyMembersCount, setFamilyMembersCount] = useState('1');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const previewBmi = Number(height) > 0 && Number(weight) > 0
+    ? Number((Number(weight) / (Number(height) / 100) ** 2).toFixed(1))
+    : undefined;
+  const gainGoalNeedsGuidance = previewBmi !== undefined && previewBmi >= 25 && goal === 'gain_weight';
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -89,6 +93,11 @@ function Onboarding({ token, onComplete }: OnboardingProps) {
         <p className="text-gray-500 text-center text-sm mb-6">{t('onboarding.subtitle')}</p>
 
         {error && <p className="text-red-500 text-sm mb-4 text-center">{error}</p>}
+        {gainGoalNeedsGuidance && (
+          <p role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            {t('onboarding.bmiGainWarning', { bmi: previewBmi })}
+          </p>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
 

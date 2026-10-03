@@ -8,16 +8,20 @@ describe('WeekPlanService', () => {
       { id: 1, name: 'Oatmeal', mealType: 'breakfast', calories: 350, ingredients: 'oats' },
       { id: 2, name: 'Eggs', mealType: 'breakfast', calories: 320, ingredients: 'eggs' },
       { id: 9, name: 'Msemen', mealType: 'breakfast', calories: 330, ingredients: 'flour' },
+      { id: 14, name: 'Harcha', mealType: 'breakfast', calories: 310, ingredients: 'semolina' },
       { id: 3, name: 'Couscous', mealType: 'lunch', calories: 500, ingredients: 'couscous' },
       { id: 4, name: 'Chicken Salad', mealType: 'lunch', calories: 450, ingredients: 'chicken' },
       { id: 10, name: 'Fish and Rice', mealType: 'lunch', calories: 480, ingredients: 'fish rice' },
+      { id: 16, name: 'Lentil Lunch', mealType: 'lunch', calories: 460, ingredients: 'lentils' },
       { id: 5, name: 'Chicken Tagine', mealType: 'dinner', calories: 320, ingredients: 'chicken' },
       { id: 6, name: 'Lentils', mealType: 'dinner', calories: 300, ingredients: 'lentils' },
       { id: 11, name: 'Vegetable Soup', mealType: 'dinner', calories: 310, ingredients: 'vegetables' },
       { id: 13, name: 'Baked Fish', mealType: 'dinner', calories: 315, ingredients: 'fish' },
+      { id: 17, name: 'Lentil Dinner', mealType: 'dinner', calories: 305, ingredients: 'lentils' },
       { id: 7, name: 'Dates', mealType: 'snack', calories: 200, ingredients: 'dates' },
       { id: 8, name: 'Yogurt', mealType: 'snack', calories: 180, ingredients: 'yogurt' },
       { id: 12, name: 'Orange', mealType: 'snack', calories: 150, ingredients: 'orange' },
+      { id: 18, name: 'Nuts', mealType: 'snack', calories: 170, ingredients: 'nuts' },
     ];
     const planMeals: Array<{
       weekPlanId: number;
@@ -78,9 +82,16 @@ describe('WeekPlanService', () => {
     }
 
     for (const mealType of ['breakfast', 'lunch', 'dinner', 'snack']) {
+      const recipeUseCounts = new Map<number, number>();
       const mealsForType = Array.from({ length: 7 }, (_, day) =>
         plan!.meals.find((meal) => meal.dayOfWeek === day && meal.mealType === mealType),
       );
+      for (const meal of mealsForType) {
+        if (!meal) continue;
+        recipeUseCounts.set(meal.recipeId, (recipeUseCounts.get(meal.recipeId) ?? 0) + 1);
+        expect(meal.reason.length).toBeGreaterThan(0);
+      }
+      expect(Math.max(...recipeUseCounts.values())).toBeLessThanOrEqual(2);
       for (let day = 2; day < mealsForType.length; day += 1) {
         expect(mealsForType[day]?.recipeId).not.toBe(mealsForType[day - 1]?.recipeId);
         expect(mealsForType[day]?.recipeId).not.toBe(mealsForType[day - 2]?.recipeId);
@@ -91,10 +102,22 @@ describe('WeekPlanService', () => {
   it('regenerates a saved plan containing a newly disliked recipe', async () => {
     const recipes = [
       { id: 1, name: 'Oatmeal', mealType: 'breakfast', calories: 350, ingredients: 'oats' },
+      { id: 6, name: 'Eggs', mealType: 'breakfast', calories: 320, ingredients: 'eggs' },
+      { id: 7, name: 'Msemen', mealType: 'breakfast', calories: 330, ingredients: 'flour' },
+      { id: 8, name: 'Harcha', mealType: 'breakfast', calories: 310, ingredients: 'semolina' },
       { id: 2, name: 'Couscous', mealType: 'lunch', calories: 500, ingredients: 'couscous' },
+      { id: 9, name: 'Fish rice', mealType: 'lunch', calories: 480, ingredients: 'fish' },
+      { id: 10, name: 'Chicken salad', mealType: 'lunch', calories: 450, ingredients: 'chicken' },
+      { id: 11, name: 'Lentil lunch', mealType: 'lunch', calories: 460, ingredients: 'lentils' },
       { id: 3, name: 'Chicken Tagine', mealType: 'dinner', calories: 320, ingredients: 'chicken' },
       { id: 4, name: 'Vegetable Soup', mealType: 'dinner', calories: 300, ingredients: 'vegetables' },
+      { id: 12, name: 'Baked Fish', mealType: 'dinner', calories: 315, ingredients: 'fish' },
+      { id: 13, name: 'Lentil Dinner', mealType: 'dinner', calories: 305, ingredients: 'lentils' },
+      { id: 18, name: 'Roasted Vegetables', mealType: 'dinner', calories: 290, ingredients: 'vegetables' },
       { id: 5, name: 'Dates', mealType: 'snack', calories: 200, ingredients: 'dates' },
+      { id: 15, name: 'Yogurt', mealType: 'snack', calories: 180, ingredients: 'yogurt' },
+      { id: 16, name: 'Orange', mealType: 'snack', calories: 150, ingredients: 'orange' },
+      { id: 17, name: 'Nuts', mealType: 'snack', calories: 170, ingredients: 'nuts' },
     ];
     const createdMeals: Array<{
       weekPlanId: number;

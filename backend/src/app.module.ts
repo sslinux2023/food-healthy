@@ -7,6 +7,8 @@ import { UserModule } from './user/user.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { RecipeModule } from './recipe/recipe.module.js';
 import { WeekPlanModule } from './weekplan/weekplan.module.js';
+import { ShoppingListModule } from './shopping-list/shopping-list.module.js';
+import { HealthScoreModule } from './health-score/health-score.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
@@ -14,6 +16,8 @@ import { WeekPlanModule } from './weekplan/weekplan.module.js';
     AuthModule,
     RecipeModule,
     WeekPlanModule,
+    ShoppingListModule,
+    HealthScoreModule,
   ],
   controllers: [AppController],
   providers: [AppService, PrismaService],

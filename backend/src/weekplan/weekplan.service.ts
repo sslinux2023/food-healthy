@@ -6,6 +6,7 @@ interface RecipeLite {
   name: string;
   calories: number | null;
   ingredients: string;
+  tags: string;
 }
 
 @Injectable()
@@ -21,7 +22,8 @@ export class WeekPlanService {
     recipes: RecipeLite[],
     target: number,
     dislikes: string[],
-    recentlyUsedIds: number[],
+    usageCounts: Map<number, number>,
+    recentlyUsedIds: number[] = [],
   ) {
     const validRecipes = recipes.filter((r): r is RecipeLite & { calories: number } => r.calories !== null);
     const pool = validRecipes.filter((recipe) => !this.isDisliked(recipe, dislikes));
@@ -29,12 +31,35 @@ export class WeekPlanService {
       throw new BadRequestException('No recipes available for this meal type after applying food dislikes');
     }
 
-    const notRecentlyUsed = pool.filter((recipe) => !recentlyUsedIds.includes(recipe.id));
-    const finalPool = notRecentlyUsed.length > 0 ? notRecentlyUsed : pool;
+    const candidates = pool.filter((recipe) => (usageCounts.get(recipe.id) ?? 0) < 2);
+    if (candidates.length === 0) {
+      throw new BadRequestException('Not enough distinct recipes to keep weekly repetition below three');
+    }
+    const notRecent = candidates.filter((recipe) => !recentlyUsedIds.includes(recipe.id));
+    const viablePool = notRecent.length > 0 ? notRecent : candidates;
+    const unused = viablePool.filter((recipe) => (usageCounts.get(recipe.id) ?? 0) === 0);
+    const finalPool = unused.length > 0 ? unused : viablePool;
 
     return finalPool.reduce((best, r) =>
       Math.abs(r.calories - target) < Math.abs(best.calories - target) ? r : best,
     );
+  }
+
+  private getMealReason(recipe: RecipeLite, goal: string | null) {
+    let tags: string[] = [];
+    try {
+      const parsed: unknown = JSON.parse(recipe.tags);
+      if (Array.isArray(parsed)) tags = parsed.filter((tag): tag is string => typeof tag === 'string');
+    } catch {
+      tags = [];
+    }
+
+    if (tags.includes('high_protein')) return 'high protein — supports your nutrition goal';
+    if (tags.includes('budget_friendly')) return 'budget-friendly — helps manage your weekly budget';
+    if (tags.includes('moroccan')) return 'Moroccan choice — familiar ingredients and flavors';
+    if (goal === 'gain_weight') return 'energy-rich portion — supports your gain-weight goal';
+    if (goal === 'lose_weight') return 'balanced portion — supports your weight-management goal';
+    return 'balanced choice — fits your daily meal plan';
   }
 
   async generate(userId: number) {
@@ -62,9 +87,12 @@ export class WeekPlanService {
 
     const recipePools = { breakfast: breakfasts, lunch: lunches, dinner: dinners, snack: snacks };
     for (const [mealType, recipes] of Object.entries(recipePools)) {
-      if (!recipes.some((recipe) => recipe.calories !== null && !this.isDisliked(recipe, dislikes))) {
+      const allowedCount = recipes.filter(
+        (recipe) => recipe.calories !== null && !this.isDisliked(recipe, dislikes),
+      ).length;
+      if (allowedCount < 4) {
         throw new BadRequestException(
-          `No ${mealType} recipes available after applying food dislikes`,
+          `At least 4 non-disliked ${mealType} recipes are needed to prevent weekly repeats`,
         );
       }
     }
@@ -86,8 +114,15 @@ export class WeekPlanService {
       dayOfWeek: number;
       mealType: string;
       servings: number;
+      reason: string;
     }[] = [];
 
+    const usageByMealType: Record<string, Map<number, number>> = {
+      breakfast: new Map(),
+      lunch: new Map(),
+      dinner: new Map(),
+      snack: new Map(),
+    };
     const recentlyUsedByMealType: Record<string, number[]> = {
       breakfast: [],
       lunch: [],
@@ -100,31 +135,37 @@ export class WeekPlanService {
         breakfasts,
         slotTargets.breakfast,
         dislikes,
+        usageByMealType.breakfast,
         recentlyUsedByMealType.breakfast,
       );
       const lunch = this.pickClosest(
         lunches,
         slotTargets.lunch,
         dislikes,
+        usageByMealType.lunch,
         recentlyUsedByMealType.lunch,
       );
       const dinner = this.pickClosest(
         dinners,
         slotTargets.dinner,
         dislikes,
+        usageByMealType.dinner,
         recentlyUsedByMealType.dinner,
       );
       const snack = this.pickClosest(
         snacks,
         slotTargets.snack,
         dislikes,
+        usageByMealType.snack,
         recentlyUsedByMealType.snack,
       );
 
       for (const [mealType, recipe] of Object.entries({ breakfast, lunch, dinner, snack })) {
-        const recentlyUsedIds = recentlyUsedByMealType[mealType];
-        recentlyUsedIds.push(recipe.id);
-        if (recentlyUsedIds.length > 2) recentlyUsedIds.shift();
+        const usage = usageByMealType[mealType];
+        usage.set(recipe.id, (usage.get(recipe.id) ?? 0) + 1);
+        const recent = recentlyUsedByMealType[mealType];
+        recent.push(recipe.id);
+        if (recent.length > 2) recent.shift();
       }
 
       mealsToCreate.push(
@@ -134,6 +175,7 @@ export class WeekPlanService {
           dayOfWeek: day,
           mealType: 'breakfast',
           servings: Number((slotTargets.breakfast / breakfast.calories).toFixed(3)),
+          reason: this.getMealReason(breakfast, user.goal),
         },
         {
           weekPlanId: weekPlan.id,
@@ -141,6 +183,7 @@ export class WeekPlanService {
           dayOfWeek: day,
           mealType: 'lunch',
           servings: Number((slotTargets.lunch / lunch.calories).toFixed(3)),
+          reason: this.getMealReason(lunch, user.goal),
         },
         {
           weekPlanId: weekPlan.id,
@@ -148,6 +191,7 @@ export class WeekPlanService {
           dayOfWeek: day,
           mealType: 'dinner',
           servings: Number((slotTargets.dinner / dinner.calories).toFixed(3)),
+          reason: this.getMealReason(dinner, user.goal),
         },
         {
           weekPlanId: weekPlan.id,
@@ -155,6 +199,7 @@ export class WeekPlanService {
           dayOfWeek: day,
           mealType: 'snack',
           servings: Number((slotTargets.snack / snack.calories).toFixed(3)),
+          reason: this.getMealReason(snack, user.goal),
         },
       );
     }
@@ -188,16 +233,21 @@ export class WeekPlanService {
       dinner: [],
       snack: [],
     };
+    const recipeUseCounts = new Map<number, number>();
     let planViolatesPreferences = false;
 
     for (const meal of weekPlan.meals) {
       const calories = meal.recipe.calories ?? 0;
+      if (!meal.reason) planViolatesPreferences = true;
       dailyTotals.set(
         meal.dayOfWeek,
         (dailyTotals.get(meal.dayOfWeek) ?? 0) + calories * meal.servings,
       );
 
       if (this.isDisliked(meal.recipe, dislikes)) planViolatesPreferences = true;
+      const useCount = (recipeUseCounts.get(meal.recipeId) ?? 0) + 1;
+      recipeUseCounts.set(meal.recipeId, useCount);
+      if (useCount > 2) planViolatesPreferences = true;
 
       const recentlyUsedIds = recentlyUsedByMealType[meal.mealType] ?? [];
       if (recentlyUsedIds.includes(meal.recipeId)) planViolatesPreferences = true;

@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsBoolean, IsIn } from 'class-validator';
+import { IsBoolean, IsIn, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateRecipeDto {
   @IsString()
@@ -18,6 +18,26 @@ export class CreateRecipeDto {
 
   @IsNumber()
   calories: number;
+
+  @IsOptional()
+  @IsNumber()
+  proteinGrams?: number;
+
+  @IsOptional()
+  @IsNumber()
+  carbGrams?: number;
+
+  @IsOptional()
+  @IsNumber()
+  fatGrams?: number;
+
+  @IsOptional()
+  @IsNumber()
+  servingGrams?: number;
+
+  @IsOptional()
+  @IsString()
+  tags?: string;
 
   @IsOptional()
   @IsBoolean()

@@ -28,7 +28,38 @@ const recipes = [
 
 async function main() {
   for (const recipe of recipes) {
-    await prisma.recipe.create({ data: recipe });
+    const ingredientAmounts: Record<string, [number, string]> = {
+      flour: [70, 'g'], semolina: [40, 'g'], butter: [10, 'g'], honey: [10, 'g'],
+      'mint tea': [250, 'ml'], cheese: [30, 'g'], oats: [50, 'g'], milk: [150, 'ml'],
+      banana: [1, 'piece'], almonds: [10, 'g'], eggs: [2, 'piece'], 'khobz bread': [80, 'g'],
+      'olive oil': [5, 'ml'], chicken: [150, 'g'], olives: [20, 'g'], 'preserved lemon': [20, 'g'],
+      onion: [30, 'g'], spices: [3, 'g'], couscous: [80, 'g'], carrot: [40, 'g'],
+      zucchini: [40, 'g'], chickpeas: [30, 'g'], pumpkin: [50, 'g'], fish: [150, 'g'],
+      rice: [60, 'g'], lemon: [1, 'piece'], garlic: [5, 'g'], lentils: [60, 'g'],
+      tomato: [60, 'g'], vermicelli: [20, 'g'], potato: [50, 'g'], eggplant: [80, 'g'],
+      bread: [60, 'g'], dates: [2, 'piece'], walnuts: [10, 'g'], oranges: [1, 'piece'],
+      yogurt: [125, 'g'], apple: [1, 'piece'], 'peanut butter': [15, 'g'], lettuce: [30, 'g'],
+      cucumber: [30, 'g'], herbs: [3, 'g'], 'chicken breast': [150, 'g'],
+    };
+    const names: string[] = JSON.parse(recipe.ingredients);
+    const ingredients = names.map((name) => {
+      const [qty, unit] = ingredientAmounts[name.toLowerCase()] ?? [25, 'g'];
+      return { name, qty, unit };
+    });
+    const proteinGrams = Math.round(recipe.calories * 0.25 / 4);
+    await prisma.recipe.create({
+      data: {
+        ...recipe,
+        ingredients: JSON.stringify(ingredients),
+        proteinGrams,
+        carbGrams: Math.round(recipe.calories * 0.5 / 4),
+        fatGrams: Math.round(recipe.calories * 0.25 / 9),
+        tags: JSON.stringify([
+          ...(recipe.isMoroccan ? ['moroccan', 'budget_friendly'] : []),
+          ...(proteinGrams >= 20 ? ['high_protein'] : []),
+        ]),
+      },
+    });
   }
   console.log(`Seeded ${recipes.length} recipes.`);
 }

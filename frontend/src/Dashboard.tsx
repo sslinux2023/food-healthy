@@ -10,8 +10,10 @@ import {
   Moon,
   Scale,
   Target,
+  X,
   type LucideIcon,
 } from 'lucide-react';
+import ShoppingList from './ShoppingList.tsx';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const recipeTranslationKeys: Record<string, string> = {
@@ -61,8 +63,16 @@ interface DashboardProps {
     bmi?: number;
     dailyCalories?: number;
     tdee?: number;
+    goal?: string;
+    height?: number;
+    weight?: number;
+    idealWeightMax?: number;
+    proteinGrams?: number;
+    carbGrams?: number;
+    fatGrams?: number;
   };
   onLogout: () => void;
+  onSessionExpired: () => void;
   token?: string;
 }
 
@@ -71,10 +81,15 @@ interface WeekPlanMeal {
   dayOfWeek: number;
   mealType: string;
   servings: number;
+  reason?: string;
   recipe: {
     name: string;
     calories?: number | null;
     servingGrams: number;
+    proteinGrams?: number | null;
+    carbGrams?: number | null;
+    fatGrams?: number | null;
+    ingredients: string;
   };
 }
 
@@ -90,6 +105,64 @@ interface DailyCheckIn {
   walkedMinutes: number;
   points: number;
   eatenMealIds: number[];
+}
+
+interface HealthScoreResponse {
+  date: string;
+  score: number;
+  breakdown: { bmi: number; water: number; meals: number };
+  waterMlDrunk: number;
+  waterMlTarget: number;
+  mealsCompleted: number;
+  mealsTarget: number;
+}
+
+interface HealthScoreSnapshot {
+  date: string;
+  score: number;
+  bmiPoints: number;
+  waterPoints: number;
+  mealsPoints: number;
+}
+
+interface RecipeIngredientDetail {
+  name: string;
+  qty: number;
+  unit: string;
+}
+
+function parseRecipeIngredients(raw: string, servings: number): RecipeIngredientDetail[] {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((entry): RecipeIngredientDetail[] => {
+      if (typeof entry === 'string') return [{ name: entry, qty: servings, unit: 'portion' }];
+      if (typeof entry !== 'object' || entry === null) return [];
+      const ingredient = entry as Partial<RecipeIngredientDetail>;
+      if (
+        typeof ingredient.name !== 'string' ||
+        typeof ingredient.qty !== 'number' ||
+        typeof ingredient.unit !== 'string'
+      ) return [];
+      return [{ name: ingredient.name, qty: ingredient.qty * servings, unit: ingredient.unit }];
+    });
+  } catch {
+    return raw.split(',').map((name) => name.trim()).filter(Boolean)
+      .map((name) => ({ name, qty: servings, unit: 'portion' }));
+  }
+}
+
+function formatAmount(amount: number) {
+  return Number.isInteger(amount) ? String(amount) : String(Math.round(amount * 10) / 10);
+}
+
+function getReasonKey(reason?: string) {
+  if (reason?.toLowerCase().includes('high protein')) return 'highProtein';
+  if (reason?.toLowerCase().includes('budget-friendly')) return 'budgetFriendly';
+  if (reason?.toLowerCase().includes('moroccan')) return 'moroccan';
+  if (reason?.toLowerCase().includes('gain-weight')) return 'gainWeight';
+  if (reason?.toLowerCase().includes('weight-management')) return 'weightManagement';
+  return 'balanced';
 }
 
 interface CheckInUpdate {
@@ -125,7 +198,7 @@ async function safeJson(response: Response) {
   }
 }
 
-function Dashboard({ user, onLogout, token }: DashboardProps) {
+function Dashboard({ user, onLogout, onSessionExpired, token }: DashboardProps) {
   const { t } = useTranslation();
   const prefersReducedMotion = useReducedMotion();
   const [today] = useState(() => {
@@ -143,6 +216,13 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
   const [loadingCheckIn, setLoadingCheckIn] = useState(Boolean(token));
   const [updatingCheckIn, setUpdatingCheckIn] = useState(false);
   const [checkInError, setCheckInError] = useState('');
+  const [healthScore, setHealthScore] = useState<HealthScoreResponse | null>(null);
+  const [healthScoreError, setHealthScoreError] = useState('');
+  const [healthScoreHistory, setHealthScoreHistory] = useState<HealthScoreSnapshot[]>([]);
+  const [showHealthDetails, setShowHealthDetails] = useState(false);
+
+  const [selectedMeal, setSelectedMeal] = useState<WeekPlanMeal | null>(null);
+  const [page, setPage] = useState<'dashboard' | 'shopping'>('dashboard');
 
   useEffect(() => {
     if (!token) return;
@@ -152,6 +232,10 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
         const response = await fetch(`${API}/user/checkin?date=${localDate}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
+        if (response.status === 401) {
+          onSessionExpired();
+          return;
+        }
         const data = await safeJson(response);
         if (!response.ok || !data) throw new Error(t('dailyCheckIn.loadError'));
         setCheckIn(data);
@@ -163,7 +247,53 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
     };
 
     void fetchCheckIn();
-  }, [token, t, localDate]);
+  }, [token, t, localDate, onSessionExpired]);
+
+  useEffect(() => {
+    if (!token) return;
+
+    const fetchHealthScore = async () => {
+      try {
+        const response = await fetch(`${API}/health-score?date=${localDate}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (response.status === 401) {
+          onSessionExpired();
+          return;
+        }
+        const data = await safeJson(response);
+        if (!response.ok || !data) throw new Error(t('healthScore.loadError'));
+        setHealthScore(data);
+      } catch (err) {
+        setHealthScoreError(err instanceof Error ? err.message : t('healthScore.loadError'));
+      }
+    };
+
+    void fetchHealthScore();
+  }, [token, t, localDate, checkIn, onSessionExpired]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    const fetchHistory = async () => {
+      try {
+        const response = await fetch(`${API}/health-score/history`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (response.status === 401) {
+          onSessionExpired();
+          return;
+        }
+        const data = await safeJson(response);
+        if (!response.ok || !Array.isArray(data)) return;
+        if (!cancelled) setHealthScoreHistory(data);
+      } catch {
+        if (!cancelled) setHealthScoreHistory([]);
+      }
+    };
+    void fetchHistory();
+    return () => { cancelled = true; };
+  }, [token, onSessionExpired, checkIn]);
 
   useEffect(() => {
     if (!token) return;
@@ -173,6 +303,10 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
         const response = await fetch(`${API}/weekplan`, {
           headers: { Authorization: `Bearer ${token}` },
         });
+        if (response.status === 401) {
+          onSessionExpired();
+          return;
+        }
 
         if (!response.ok) {
           if (response.status === 404) {
@@ -192,6 +326,10 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
         });
+        if (generateResponse.status === 401) {
+          onSessionExpired();
+          return;
+        }
         if (!generateResponse.ok) throw new Error(t('weekPlan.generateError'));
         setWeekPlan(await safeJson(generateResponse));
       } catch (err) {
@@ -202,7 +340,7 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
     };
 
     void fetchWeekPlan();
-  }, [token, t]);
+  }, [token, t, onSessionExpired]);
 
   const generatePlan = async () => {
     if (!token) return;
@@ -217,6 +355,10 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
           Authorization: `Bearer ${token}`,
         },
       });
+      if (response.status === 401) {
+        onSessionExpired();
+        return;
+      }
       if (!response.ok) throw new Error(t('weekPlan.generateError'));
       setWeekPlan((await safeJson(response)) ?? null);
     } catch (err) {
@@ -240,6 +382,10 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
         },
         body: JSON.stringify({ ...update, localDate }),
       });
+      if (response.status === 401) {
+        onSessionExpired();
+        return;
+      }
       const data = await safeJson(response);
       if (!response.ok || !data) {
         throw new Error(data?.message || t('dailyCheckIn.updateError'));
@@ -261,6 +407,27 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
     }) ?? [];
   const waterProgress = Math.min((checkIn?.waterGlasses ?? 0) / 8, 1) * 100;
   const mealDoneCount = todayMeals.filter((meal) => checkIn?.eatenMealIds.includes(meal.id)).length;
+  const hasPlanMeals = Boolean(weekPlan && weekPlan.meals.length > 0);
+  const scoreColor = !healthScore || healthScore.score < 40
+    ? 'text-red-500'
+    : healthScore.score < 70
+      ? 'text-amber-500'
+      : 'text-emerald-600';
+  const scoreRingColor = !healthScore || healthScore.score < 40
+    ? 'stroke-red-500'
+    : healthScore.score < 70
+      ? 'stroke-amber-500'
+      : 'stroke-emerald-600';
+
+  if (page === 'shopping') {
+    return (
+      <ShoppingList
+        token={token ?? ''}
+        onBack={() => setPage('dashboard')}
+        onSessionExpired={onSessionExpired}
+      />
+    );
+  }
 
   return (
     <motion.main
@@ -278,12 +445,21 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
             </h1>
             <p className="mt-1 text-gray-600">{t('dashboard.profileReady')}</p>
           </div>
-          <button
-            onClick={onLogout}
-            className="rounded-2xl border border-emerald-200 bg-white px-4 py-2.5 font-semibold text-emerald-800 shadow-lg shadow-emerald-900/5 transition hover:bg-emerald-50"
-          >
-            {t('dashboard.logout')}
-          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setPage('shopping')}
+              className="rounded-2xl bg-emerald-600 px-4 py-2.5 font-semibold text-white shadow-lg shadow-emerald-900/5 transition hover:bg-emerald-700"
+            >
+              {t('shoppingList.open')}
+            </button>
+            <button
+              onClick={onLogout}
+              className="rounded-2xl border border-emerald-200 bg-white px-4 py-2.5 font-semibold text-emerald-800 shadow-lg shadow-emerald-900/5 transition hover:bg-emerald-50"
+            >
+              {t('dashboard.logout')}
+            </button>
+          </div>
         </motion.header>
 
         <motion.section variants={rowVariants} className="grid grid-cols-1 gap-4 sm:grid-cols-3" aria-label={t('dashboard.stats')}>
@@ -308,6 +484,16 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
           </article>
         </motion.section>
 
+        {typeof user.bmi === 'number' && (user.bmi < 18.5 || user.bmi >= 25) && (
+          <motion.aside variants={rowVariants} className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 shadow-sm">
+            {t('dashboard.bmiGoalEducation', {
+              bmi: user.bmi,
+              goal: user.goal ? t(`onboarding.${user.goal === 'gain_weight' ? 'gainWeight' : user.goal === 'lose_weight' ? 'loseWeight' : user.goal}`) : t('onboarding.health'),
+              dailyCalories: user.dailyCalories ?? 0,
+            })}
+          </motion.aside>
+        )}
+
         <motion.section
           variants={rowVariants}
           className="rounded-2xl bg-white p-5 shadow-lg shadow-emerald-900/5 sm:p-6"
@@ -330,7 +516,10 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
           {checkInError && <p role="alert" className="mb-4 text-sm text-amber-700">{checkInError}</p>}
 
           {loadingCheckIn ? (
-            <p className="text-gray-600">{t('dailyCheckIn.loading')}</p>
+            <div className="grid gap-4 lg:grid-cols-2" aria-label={t('dailyCheckIn.loading')}>
+              <div className="h-40 animate-pulse rounded-2xl bg-blue-50" />
+              <div className="h-40 animate-pulse rounded-2xl bg-emerald-50" />
+            </div>
           ) : checkIn ? (
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)]">
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
@@ -465,7 +654,7 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
             <div>
               <h2 className="text-xl font-bold text-emerald-950">{t('weekPlan.title')}</h2>
             </div>
-            {!weekPlan && (
+            {!hasPlanMeals && (
               <button
                 onClick={generatePlan}
                 disabled={loadingPlan}
@@ -479,7 +668,9 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
           {planError && <p role="alert" className="mb-3 text-sm text-amber-700">{planError}</p>}
 
           {loadingPlan ? (
-            <p className="text-gray-600">{t('weekPlan.loading')}</p>
+            <div className="flex gap-3 overflow-hidden" aria-label={t('weekPlan.loading')}>
+              {[0, 1, 2, 3].map((day) => <div key={day} className="h-72 w-64 shrink-0 animate-pulse rounded-2xl bg-emerald-50" />)}
+            </div>
           ) : weekPlan && weekPlan.meals.length > 0 ? (
             <div className="-mx-1 snap-x snap-mandatory overflow-x-auto px-1 pb-4 md:mx-0 md:overflow-visible md:px-0">
               <div className="flex w-max gap-3 xl:grid xl:w-auto xl:grid-cols-7 xl:gap-2">
@@ -524,6 +715,14 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
                             ? t(`weekPlan.recipes.${recipeTranslationKeys[meal.recipe.name]}`)
                             : meal.recipe.name;
                           const MealIcon = mealIcons[meal.mealType] ?? Apple;
+                          const calories = meal.recipe.calories ?? 0;
+                          const protein = (meal.recipe.proteinGrams ?? calories * 0.25 / 4) * meal.servings;
+                          const carbs = (meal.recipe.carbGrams ?? calories * 0.5 / 4) * meal.servings;
+                          const fat = (meal.recipe.fatGrams ?? calories * 0.25 / 9) * meal.servings;
+                          const macroCalories = protein * 4 + carbs * 4 + fat * 9;
+                          const proteinWidth = macroCalories > 0 ? protein * 4 / macroCalories * 100 : 0;
+                          const carbWidth = macroCalories > 0 ? carbs * 4 / macroCalories * 100 : 0;
+                          const fatWidth = macroCalories > 0 ? fat * 9 / macroCalories * 100 : 0;
                           return (
                             <div key={`${meal.id}-${meal.mealType}`} className="relative min-w-0">
                               <span className="absolute -inset-s-4.5 top-1.5 h-2 w-2 rounded-full border-2 border-white bg-emerald-500 ring-1 ring-emerald-200" />
@@ -537,12 +736,29 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
                                     {Math.round((meal.recipe.calories ?? 0) * meal.servings)} {t('weekPlan.kcal')}
                                   </span>
                                 </div>
-                                <p title={recipeName} className="mt-1 truncate text-xs font-medium text-gray-900">
+                                <button
+                                  type="button"
+                                  title={recipeName}
+                                  onClick={() => setSelectedMeal(meal)}
+                                  className="mt-1 block w-full truncate text-start text-xs font-semibold text-gray-900 underline-offset-2 hover:text-emerald-800 hover:underline"
+                                >
                                   {recipeName}
-                                </p>
+                                </button>
+                                {meal.reason && (
+                                  <p title={meal.reason} className="mt-1 truncate text-[10px] text-emerald-800">
+                                    {t(`weekPlan.reasons.${getReasonKey(meal.reason)}`)}
+                                  </p>
+                                )}
                                 <p className="mt-1 truncate text-[10px] text-gray-500">
                                   ~{Math.round(meal.recipe.servingGrams * meal.servings)} {t('weekPlan.grams')}
                                 </p>
+                                {macroCalories > 0 && (
+                                  <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-gray-100" aria-label={t('recipeDetail.macros')}>
+                                    <span className="bg-emerald-500" style={{ width: `${proteinWidth}%` }} />
+                                    <span className="bg-amber-400" style={{ width: `${carbWidth}%` }} />
+                                    <span className="bg-rose-400" style={{ width: `${fatWidth}%` }} />
+                                  </div>
+                                )}
                               </div>
                             </div>
                           );
@@ -558,20 +774,183 @@ function Dashboard({ user, onLogout, token }: DashboardProps) {
               </div>
             </div>
           ) : (
-            <p className="rounded-2xl bg-emerald-50 p-4 text-sm text-gray-600">{t('weekPlan.noPlan')}</p>
+            <div className="rounded-2xl border border-dashed border-emerald-300 bg-emerald-50 p-6 text-center">
+              <p className="font-semibold text-emerald-950">{t('weekPlan.emptyHeadline')}</p>
+              <p className="mt-1 text-sm text-gray-600">{t('weekPlan.noPlan')}</p>
+              <button type="button" onClick={() => void generatePlan()} disabled={loadingPlan} className="mt-4 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
+                {t('weekPlan.emptyAction')}
+              </button>
+            </div>
           )}
         </motion.section>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <article className="rounded-2xl bg-white p-5 opacity-70 shadow-lg shadow-emerald-900/5">
-            <p className="font-semibold text-gray-800">{t('dashboard.shoppingList')}</p>
-            <p className="mt-1 text-sm text-gray-500">{t('dashboard.comingSoon')}</p>
+        <motion.section variants={rowVariants} className="grid gap-4 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => setPage('shopping')}
+            className="rounded-2xl bg-white p-5 text-start shadow-lg shadow-emerald-900/5 transition hover:bg-emerald-50"
+          >
+            <p className="font-semibold text-gray-900">{t('dashboard.shoppingList')}</p>
+            <p className="mt-1 text-sm text-gray-600">{t('shoppingList.openDescription')}</p>
+          </button>
+          <article className="rounded-2xl bg-white p-5 shadow-lg shadow-emerald-900/5">
+            <button
+              type="button"
+              onClick={() => setShowHealthDetails((open) => !open)}
+              aria-expanded={showHealthDetails}
+              className="flex w-full items-center gap-5 text-start"
+            >
+              <div className="relative h-24 w-24 shrink-0">
+                <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90" role="img" aria-label={t('healthScore.ringLabel', { score: healthScore?.score ?? 0 })}>
+                  <circle cx="50" cy="50" r="43" fill="none" strokeWidth="8" className="stroke-emerald-100" />
+                  <motion.circle
+                    cx="50"
+                    cy="50"
+                    r="43"
+                    fill="none"
+                    strokeWidth="8"
+                    strokeLinecap="round"
+                    className={scoreRingColor}
+                    strokeDasharray={2 * Math.PI * 43}
+                    initial={prefersReducedMotion ? false : { strokeDashoffset: 2 * Math.PI * 43 }}
+                    animate={{ strokeDashoffset: 2 * Math.PI * 43 * (1 - (healthScore?.score ?? 0) / 100) }}
+                    transition={{ duration: prefersReducedMotion ? 0 : 0.7, ease: 'easeOut' }}
+                  />
+                </svg>
+                <span className={`absolute inset-0 flex items-center justify-center text-2xl font-bold ${scoreColor}`}>
+                  {healthScore?.score ?? '—'}
+                </span>
+              </div>
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold text-gray-900">{t('healthScore.title')}</span>
+                {healthScoreError ? (
+                  <span className="mt-1 block text-sm text-amber-700">{healthScoreError}</span>
+                ) : (
+                  <span className="mt-1 block text-sm text-gray-600">
+                    {healthScore ? t('healthScore.dailySnapshot') : t('healthScore.loading')}
+                  </span>
+                )}
+                {healthScore && (
+                  <span className="mt-2 block text-xs text-gray-500">
+                    {healthScore.breakdown.bmi}/40 · {healthScore.breakdown.water}/30 · {healthScore.breakdown.meals}/30
+                  </span>
+                )}
+              </span>
+            </button>
+            {showHealthDetails && healthScore && (
+              <div className="mt-5 space-y-4 border-t border-gray-100 pt-4">
+                {([
+                  ['bmi', 40, healthScore.breakdown.bmi],
+                  ['water', 30, healthScore.breakdown.water],
+                  ['meals', 30, healthScore.breakdown.meals],
+                ] as const).map(([key, max, value]) => {
+                  const percent = Math.min(value / max, 1) * 100;
+                  const bmiHealthyMax = user.height ? 24.9 * (user.height / 100) ** 2 : user.idealWeightMax;
+                  const weightToLose = user.weight && bmiHealthyMax ? Math.max(0, Math.ceil(user.weight - bmiHealthyMax)) : 0;
+                  const tip = key === 'bmi'
+                    ? (user.bmi ?? 0) < 18.5
+                      ? t('healthScore.bmiUnderweightTip', { bmi: user.bmi ?? 0 })
+                      : t('healthScore.bmiOverweightTip', { bmi: user.bmi ?? 0, kilos: weightToLose, maxWeight: Math.round(bmiHealthyMax ?? 0) })
+                    : key === 'water'
+                      ? percent >= 100
+                        ? t('healthScore.waterGoodTip')
+                        : t('healthScore.waterTip', { ml: Math.max(0, healthScore.waterMlTarget - healthScore.waterMlDrunk) })
+                      : percent >= 100
+                        ? t('healthScore.mealsGoodTip')
+                        : t('healthScore.mealsTip', { count: healthScore.mealsCompleted });
+                  return (
+                    <div key={key}>
+                      <div className="mb-1 flex justify-between text-xs font-semibold text-gray-700">
+                        <span>{t(`healthScore.components.${key}`)}</span><span>{value}/{max}</span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-emerald-50">
+                        <div className="h-full rounded-full bg-emerald-500" style={{ width: `${percent}%` }} />
+                      </div>
+                      <p className="mt-1 text-xs text-gray-600">{tip}</p>
+                    </div>
+                  );
+                })}
+                <div>
+                  <p className="mb-2 text-xs font-semibold text-gray-700">{t('healthScore.history')}</p>
+                  {healthScoreHistory.length > 1 ? (
+                    <svg viewBox="0 0 300 52" className="h-14 w-full overflow-visible" role="img" aria-label={t('healthScore.history')}>
+                      <polyline
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className="text-emerald-500"
+                        points={healthScoreHistory.map((point, index) => {
+                          const x = index / (healthScoreHistory.length - 1) * 296 + 2;
+                          const y = 48 - point.score / 100 * 44;
+                          return `${x},${y}`;
+                        }).join(' ')}
+                      />
+                    </svg>
+                  ) : (
+                    <p className="text-xs text-gray-500">{t('healthScore.historyEmpty')}</p>
+                  )}
+                </div>
+              </div>
+            )}
           </article>
-          <article className="rounded-2xl bg-white p-5 opacity-70 shadow-lg shadow-emerald-900/5">
-            <p className="font-semibold text-gray-800">{t('dashboard.healthScore')}</p>
-            <p className="mt-1 text-sm text-gray-500">{t('dashboard.comingSoon')}</p>
-          </article>
-        </div>
+        </motion.section>
+
+        {selectedMeal && (() => {
+          const recipeName = recipeTranslationKeys[selectedMeal.recipe.name]
+            ? t(`weekPlan.recipes.${recipeTranslationKeys[selectedMeal.recipe.name]}`)
+            : selectedMeal.recipe.name;
+          const ingredients = parseRecipeIngredients(selectedMeal.recipe.ingredients, selectedMeal.servings);
+          const estimatedNutrition = selectedMeal.recipe.proteinGrams == null || selectedMeal.recipe.carbGrams == null || selectedMeal.recipe.fatGrams == null;
+          const calories = selectedMeal.recipe.calories ?? 0;
+          const protein = Math.round((selectedMeal.recipe.proteinGrams ?? calories * 0.25 / 4) * selectedMeal.servings);
+          const carbs = Math.round((selectedMeal.recipe.carbGrams ?? calories * 0.5 / 4) * selectedMeal.servings);
+          const fat = Math.round((selectedMeal.recipe.fatGrams ?? calories * 0.25 / 9) * selectedMeal.servings);
+          const proteinPercent = user.proteinGrams ? Math.round(protein / user.proteinGrams * 100) : 0;
+          return (
+            <div className="fixed inset-0 z-60 flex items-end justify-center bg-emerald-950/45 p-0 sm:items-center sm:p-5" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedMeal(null); }}>
+              <section role="dialog" aria-modal="true" aria-labelledby="recipe-detail-title" className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl sm:p-7">
+                <header className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-emerald-700">{t(`weekPlan.meals.${selectedMeal.mealType}`)}</p>
+                    <h2 id="recipe-detail-title" className="mt-1 text-2xl font-bold text-emerald-950">{recipeName}</h2>
+                  </div>
+                  <button type="button" onClick={() => setSelectedMeal(null)} aria-label={t('recipeDetail.close')} className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-emerald-50 text-emerald-800 hover:bg-emerald-100">
+                    <X aria-hidden="true" className="h-5 w-5" />
+                  </button>
+                </header>
+                <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="rounded-2xl bg-emerald-50 p-3"><p className="text-xs text-gray-600">{t('weekPlan.kcal')}</p><p className="mt-1 font-bold text-emerald-900">{Math.round((selectedMeal.recipe.calories ?? 0) * selectedMeal.servings)}</p></div>
+                  <div className="rounded-2xl bg-emerald-50 p-3"><p className="text-xs text-gray-600">{t('recipeDetail.protein')}</p><p className="mt-1 font-bold text-emerald-900">{protein} {t('weekPlan.grams')}</p></div>
+                  <div className="rounded-2xl bg-amber-50 p-3"><p className="text-xs text-gray-600">{t('recipeDetail.carbs')}</p><p className="mt-1 font-bold text-amber-900">{carbs} {t('weekPlan.grams')}</p></div>
+                  <div className="rounded-2xl bg-rose-50 p-3"><p className="text-xs text-gray-600">{t('recipeDetail.fat')}</p><p className="mt-1 font-bold text-rose-900">{fat} {t('weekPlan.grams')}</p></div>
+                </div>
+                {estimatedNutrition && <p className="mt-2 text-xs text-gray-500">{t('recipeDetail.estimatedMacros')}</p>}
+                <div className="mt-6">
+                  <h3 className="font-semibold text-gray-900">{t('recipeDetail.ingredients')}</h3>
+                  {ingredients.length ? (
+                    <ul className="mt-2 divide-y divide-gray-100">
+                      {ingredients.map((ingredient, index) => (
+                        <li key={`${ingredient.name}-${index}`} className="flex justify-between gap-3 py-2 text-sm">
+                          <span className="text-gray-800">{ingredient.name}</span>
+                          <span className="shrink-0 font-medium text-emerald-800">{formatAmount(ingredient.qty)} {t(`shoppingList.units.${ingredient.unit}`, { defaultValue: ingredient.unit })}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : <p className="mt-2 text-sm text-gray-500">{t('recipeDetail.ingredientsUnavailable')}</p>}
+                </div>
+                <div className="mt-5 rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                  <h3 className="font-semibold text-emerald-950">{t('recipeDetail.whyTitle')}</h3>
+                  <p className="mt-1 text-sm text-emerald-900">
+                    {t('recipeDetail.proteinFit', { percent: proteinPercent })}
+                    {selectedMeal.reason ? ` ${t(`weekPlan.reasons.${getReasonKey(selectedMeal.reason)}`)}` : ''}
+                  </p>
+                </div>
+              </section>
+            </div>
+          );
+        })()}
       </div>
     </motion.main>
   );

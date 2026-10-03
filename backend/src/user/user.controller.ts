@@ -67,11 +67,19 @@ export class UserController {
         id: user.id,
         email: user.email,
         firstName: user.firstName,
+        lastName: user.lastName,
         role: user.role,
         onboardingCompleted: user.onboardingCompleted,
         bmi: user.bmi,
         dailyCalories: user.dailyCalories,
         tdee: user.tdee,
+        goal: user.goal,
+        height: user.height,
+        weight: user.weight,
+        idealWeightMax: user.idealWeightMax,
+        proteinGrams: user.proteinGrams,
+        carbGrams: user.carbGrams,
+        fatGrams: user.fatGrams,
       };
     } catch (error) {
       throw new HttpException(
@@ -102,6 +110,13 @@ export class UserController {
         bmi: user.bmi,
         dailyCalories: user.dailyCalories,
         tdee: user.tdee,
+        goal: user.goal,
+        height: user.height,
+        weight: user.weight,
+        idealWeightMax: user.idealWeightMax,
+        proteinGrams: user.proteinGrams,
+        carbGrams: user.carbGrams,
+        fatGrams: user.fatGrams,
       },
     };
   }

@@ -17,6 +17,13 @@ interface User {
   bmi?: number;
   dailyCalories?: number;
   tdee?: number;
+  goal?: string;
+  height?: number;
+  weight?: number;
+  idealWeightMax?: number;
+  proteinGrams?: number;
+  carbGrams?: number;
+  fatGrams?: number;
 }
 
 function App() {
@@ -128,6 +135,7 @@ function App() {
         user={user}
         onLogout={handleLogout}
         token={localStorage.getItem('token') || ''}
+        onSessionExpired={handleLogout}
       />
     );
   } else {
