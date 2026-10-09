@@ -14,62 +14,70 @@ model User {
   firstName String
   lastName  String
   role      String   @default("client") // client / admin
+  constitutionType  String?  @db.VarChar(16)
   createdAt DateTime @default(now())
 
-
   // Personal & Health data (from onboarding)
-  country   String   @default("Morocco")
-  age       Int?
-  gender    String?  // male / female
-  height    Int?     // cm
-  weight    Int?     // kg
+  country String  @default("Morocco")
+  age     Int?
+  gender  String? // male / female
+  height  Int? // cm
+  weight  Int? // kg
 
   // Lifestyle & Goals
-  goal      String?  // weight_loss / weight_gain / health / sport
-  lifestyle String?  // active / sedentary / elderly
+  goal           String? // weight_loss / weight_gain / health / sport
+  lifestyle      String? // active / sedentary / elderly
   walksRegularly Boolean @default(false)
 
   // Budget & Culture
-  weeklyBudget Int?  // MAD
+  weeklyBudget    Int? // MAD
   foodPreferences String? // comma-separated or JSON string
   foodDislikes    String?
 
   // Family
-  familyMembersCount Int? @default(1)
-  bmi             Float?
-  dailyCalories   Int?
-  tdee            Int?
-  proteinGrams    Int?
-  carbGrams       Int?
-  fatGrams        Int?
-  waterMl         Int?
-  idealWeightMin  Float?
-  idealWeightMax  Float?
+  familyMembersCount  Int?    @default(1)
+  bmi                 Float?
+  dailyCalories       Int?
+  tdee                Int?
+  proteinGrams        Int?
+  carbGrams           Int?
+  fatGrams            Int?
+  waterMl             Int?
+  idealWeightMin      Float?
+  idealWeightMax      Float?
   onboardingCompleted Boolean @default(false)
 
-  healthLogs   HealthLog[]
-  weekPlans    WeekPlan[]
+  healthLogs    HealthLog[]
+  weekPlans     WeekPlan[]
   shoppingItems ShoppingItem[]
-  healthScores HealthScore[]
+  healthScores  HealthScore[]
 }
 
 model Recipe {
-  id          Int      @id @default(autoincrement())
-  name        String
-  description String?
-  imageUrl    String?
+  id              Int      @id @default(autoincrement())
+  name            String
+  description     String?
+  imageUrl        String?
   prepTimeMinutes Int?
-  calories    Int?
-  proteinGrams Int?
-  carbGrams Int?
-  fatGrams Int?
-  servingGrams Int    @default(250)
-  tags        String   @default("[]")
-  isMoroccan  Boolean  @default(false)
-  mealType    String   // breakfast / lunch / dinner / snack
-  ingredients String   // JSON string list
-  instructions String?
-  createdAt   DateTime @default(now())
+  calories        Int?
+  proteinGrams    Int?
+  carbGrams       Int?
+  fatGrams        Int?
+  servingGrams    Int      @default(250)
+  tags            String   @default("[]")
+  isMoroccan      Boolean  @default(false)
+  mealType        String // breakfast / lunch / dinner / snack
+  ingredients     String  @db.Text// JSON string list
+  instructions    String?  @db.Text
+  suitableFor  String  @default("all") @db.VarChar(16)
+  // Values: 'thin' | 'heavy' | 'balanced' | 'all'
+  // Which body types benefit most from this recipe
+  isLight      Boolean @default(false)
+  // true for soups, salads, vegetables — good for 'heavy'
+  isCalorieDense  Boolean @default(false)
+  // true for oily, carb-heavy — good for 'thin'
+  createdAt       DateTime @default(now())
+
 
   weekPlanMeals WeekPlanMeal[]
 }
@@ -81,7 +89,7 @@ model WeekPlan {
   weekStart DateTime
   createdAt DateTime @default(now())
 
-  meals     WeekPlanMeal[]
+  meals WeekPlanMeal[]
 }
 
 model WeekPlanMeal {
@@ -90,52 +98,64 @@ model WeekPlanMeal {
   weekPlan   WeekPlan @relation(fields: [weekPlanId], references: [id])
   recipeId   Int
   recipe     Recipe   @relation(fields: [recipeId], references: [id])
-  dayOfWeek  Int      // 0-6
-  mealType   String   // breakfast / lunch / dinner / snack
+  dayOfWeek  Int // 0-6
+  mealType   String // breakfast / lunch / dinner / snack
   servings   Float    @default(1)
   reason     String   @default("")
 }
 
 model HealthLog {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id])
-  date      DateTime @default(now())
-  waterGlasses  Int  @default(0)
-  vegetableServings Int @default(0)
-  sleepHours    Float?
-  walkedMinutes Int   @default(0)
-  points        Int   @default(0)
-  mealsEaten    String @default("[]")
+  id                Int      @id @default(autoincrement())
+  userId            Int
+  user              User     @relation(fields: [userId], references: [id])
+  date              DateTime @default(now())
+  waterGlasses      Int      @default(0)
+  vegetableServings Int      @default(0)
+  sleepHours        Float?
+  walkedMinutes     Int      @default(0)
+  points            Int      @default(0)
+  mealsEaten        String   @default("[]")
 }
 
 model ShoppingItem {
-  id           Int      @id @default(autoincrement())
-  userId       Int
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  weekPlanId   Int?
-  name         String   @db.VarChar(191)
-  quantity     Float
-  unit         String   @default("portion") @db.VarChar(64)
-  source       String   @default("plan") @db.VarChar(16)
-  isChecked    Boolean  @default(false)
-  isDismissed  Boolean  @default(false)
-  createdAt    DateTime @default(now())
-
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weekPlanId  Int?
+  
+  name        String   @db.VarChar(191)
+  quantity    Float
+  unit        String   @default("portion") @db.VarChar(64)
+  
+  // ⭐ NEW: Categorization for shopping aisle grouping
+  category    String?  @db.VarChar(32)  // vegetables | proteins | dairy | fruits | pantry | spices | other
+  
+  // ⭐ NEW: Budget tracking (in centimes MAD to avoid float issues)
+  estimatedCostPerUnit  Int?  @default(0)
+  
+  // ⭐ NEW: Which day this item is needed for
+  forDate     DateTime?
+  
+  source      String   @default("plan") @db.VarChar(16)  // plan | manual
+  isChecked   Boolean  @default(false)
+  isDismissed Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
   @@unique([userId, weekPlanId, name, unit, source])
   @@index([userId, weekPlanId, isDismissed])
+  @@index([userId, forDate])
 }
 
 model HealthScore {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  date      DateTime
-  score     Int
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date        DateTime
+  score       Int
   bmiPoints   Int      @default(0)
   waterPoints Int      @default(0)
   mealsPoints Int      @default(0)
-  createdAt DateTime @default(now())
+  createdAt   DateTime @default(now())
 
   @@unique([userId, date])
   @@index([userId, date])

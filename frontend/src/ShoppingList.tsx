@@ -1,316 +1,218 @@
-import { useEffect, useState, type FormEvent } from 'react';
-import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Check, ListChecks, ShoppingBasket } from 'lucide-react';
+import { useEffect, useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
+import ShoppingItemRow, { ShoppingItem } from "./components/ShoppingItemRow";
+import AddItemModal from "./components/AddItemModal";
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-
-interface ShoppingSource {
-  mealType: string;
-  recipeName: string;
-  dayOfWeek: number;
-}
-
-interface ShoppingItem {
-  id: number;
-  name: string;
-  quantity: number;
-  unit: string;
-  isChecked: boolean;
-  source: string;
-  sources: ShoppingSource[];
-}
-
-interface ShoppingListResponse {
-  weekPlanId: number;
-  familyMembersCount: number;
-  items: ShoppingItem[];
-}
-
-interface ShoppingListProps {
+type ShoppingListProps = {
   token: string;
+  userKey: string;
   onBack: () => void;
   onSessionExpired: () => void;
-}
+};
 
-async function readJson(response: Response) {
-  const text = await response.text();
-  if (!text) return null;
+const BASE_STORAGE_KEY = "food-healthy:user-shopping-items";
+
+const BASE_ITEMS: ShoppingItem[] = [
+  // Breakfast
+  { id: "b1", name: "Oats", quantity: 200, unit: "g", category: "Breakfast", checked: false, note: "For Oatmeal with Fruits" },
+  { id: "b2", name: "Milk", quantity: 627, unit: "ml", category: "Breakfast", checked: false, note: "For Oatmeal with Fruits" },
+  { id: "b3", name: "Bananas", quantity: 4.2, unit: "pieces", category: "Breakfast", checked: false, note: "For Oatmeal with Fruits" },
+  { id: "b4", name: "Almonds", quantity: 74.3, unit: "g", category: "Breakfast", checked: false, note: "For Oatmeal with Fruits" },
+  { id: "b5", name: "Olive oil", quantity: 51.8, unit: "ml", category: "Breakfast", checked: false, note: "For Eggs with Khobz" },
+  { id: "b6", name: "Eggs", quantity: 9.8, unit: "pieces", category: "Breakfast", checked: false, note: "For Eggs with Khobz" },
+  { id: "b7", name: "Khobz bread", quantity: 396.1, unit: "g", category: "Breakfast", checked: false, note: "For Eggs with Khobz" },
+  { id: "b8", name: "Cheese", quantity: 76.4, unit: "g", category: "Breakfast", checked: false, note: "For Harcha with Cheese" },
+  // Lunch
+  { id: "l1", name: "Chicken", quantity: 652.8, unit: "g", category: "Lunch", checked: false, note: "For Chicken Tagine with Olives" },
+  { id: "l2", name: "Olives", quantity: 91, unit: "g", category: "Lunch", checked: false, note: "For Chicken Tagine with Olives" },
+  { id: "l3", name: "Onion", quantity: 208.3, unit: "g", category: "Lunch", checked: false, note: "For Chicken Tagine" },
+  { id: "l4", name: "Chicken breast", quantity: 1.3, unit: "kg", category: "Lunch", checked: false, note: "For Grilled Chicken Salad" },
+  { id: "l5", name: "Fish", quantity: 768, unit: "g", category: "Lunch", checked: false, note: "For Grilled Fish with Rice" },
+  { id: "l6", name: "Rice", quantity: 307.2, unit: "g", category: "Lunch", checked: false, note: "For Grilled Fish with Rice" },
+  { id: "l7", name: "Potato", quantity: 315.5, unit: "g", category: "Lunch", checked: false, note: "For Vegetable Tagine" },
+  { id: "l8", name: "Zucchini", quantity: 250.8, unit: "g", category: "Lunch", checked: false, note: "For Vegetable Tagine" },
+  // Snack
+  { id: "s1", name: "Apple", quantity: 2.9, unit: "pieces", category: "Snack", checked: false, note: "For Apple with Peanut Butter" },
+  { id: "s2", name: "Peanut butter", quantity: 43.9, unit: "g", category: "Snack", checked: false, note: "For Apple with Peanut Butter" },
+  { id: "s3", name: "Yogurt", quantity: 487.8, unit: "g", category: "Snack", checked: false, note: "For Greek Yogurt with Honey" },
+  { id: "s4", name: "Honey", quantity: 94.7, unit: "g", category: "Snack", checked: false, note: "For Greek Yogurt with Honey" },
+  { id: "s5", name: "Dates", quantity: 6.5, unit: "pieces", category: "Snack", checked: false, note: "For Mixed Nuts & Dates" },
+  { id: "s6", name: "Walnuts", quantity: 32.9, unit: "g", category: "Snack", checked: false, note: "For Mixed Nuts & Dates" },
+];
+
+const CATEGORY_ORDER: ShoppingItem["category"][] = [
+  "Added by you",
+  "Breakfast",
+  "Lunch",
+  "Snack",
+];
+
+// Pure helper — reads from localStorage. Not a hook, so no warning.
+function readUserItems(key: string): ShoppingItem[] {
   try {
-    return JSON.parse(text);
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return null;
+    return [];
   }
 }
 
-function ShoppingList({ token, onBack, onSessionExpired }: ShoppingListProps) {
+export default function ShoppingList({ userKey, onBack }: ShoppingListProps) {
   const { t } = useTranslation();
-  const [shoppingList, setShoppingList] = useState<ShoppingListResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [working, setWorking] = useState(false);
-  const [error, setError] = useState('');
-  const [manualName, setManualName] = useState('');
-  const [manualQty, setManualQty] = useState('1');
-  const [manualUnit, setManualUnit] = useState('piece');
 
+  const storageKey = `${BASE_STORAGE_KEY}:${userKey || "anonymous"}`;
+
+  // Lazy initializer — no effect, no warning
+  const [userItems, setUserItems] = useState<ShoppingItem[]>(() =>
+    readUserItems(storageKey)
+  );
+  const [baseItems, setBaseItems] = useState<ShoppingItem[]>(BASE_ITEMS);
+  const [modalOpen, setModalOpen] = useState(false);
+
+  // Persist — writes to external system, so this effect is fine
   useEffect(() => {
-    let cancelled = false;
-    const fetchList = async () => {
-      try {
-        const response = await fetch(`${API}/shopping-list`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (response.status === 401) {
-          onSessionExpired();
-          return;
-        }
-        const data = await readJson(response);
-        if (!response.ok || !data) throw new Error(data?.message || t('shoppingList.loadError'));
-        if (!cancelled) setShoppingList(data);
-      } catch (reason) {
-        if (!cancelled) {
-          setError(reason instanceof Error ? reason.message : t('shoppingList.loadError'));
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(userItems));
+    } catch {}
+  }, [userItems, storageKey]);
+
+  const allItems = useMemo(
+    () => [...userItems, ...baseItems],
+    [userItems, baseItems]
+  );
+
+  const toggle = (id: string) => {
+    if (userItems.some((it) => it.id === id)) {
+      setUserItems((prev) =>
+        prev.map((it) => (it.id === id ? { ...it, checked: !it.checked } : it))
+      );
+      return;
+    }
+    setBaseItems((prev) =>
+      prev.map((it) => (it.id === id ? { ...it, checked: !it.checked } : it))
+    );
+  };
+
+  const remove = (id: string) => {
+    setUserItems((prev) => prev.filter((it) => it.id !== id));
+  };
+
+  const addItem = (data: { name: string; quantity: number; unit: string }) => {
+    const newItem: ShoppingItem = {
+      id: `user-${Date.now()}`,
+      name: data.name,
+      quantity: data.quantity,
+      unit: data.unit,
+      category: "Added by you",
+      checked: false,
     };
-
-    void fetchList();
-    return () => {
-      cancelled = true;
-    };
-  }, [token, t, onSessionExpired]);
-
-  const toggleItem = async (item: ShoppingItem) => {
-    setWorking(true);
-    setError('');
-    try {
-      const response = await fetch(`${API}/shopping-list/${item.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ isChecked: !item.isChecked }),
-      });
-      if (response.status === 401) {
-        onSessionExpired();
-        return;
-      }
-      const data = await readJson(response);
-      if (!response.ok || !data) throw new Error(data?.message || t('shoppingList.updateError'));
-      setShoppingList((current) => current
-        ? { ...current, items: current.items.map((entry) => entry.id === item.id ? { ...entry, isChecked: data.isChecked } : entry) }
-        : current);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t('shoppingList.updateError'));
-    } finally {
-      setWorking(false);
-    }
+    setUserItems((prev) => [newItem, ...prev]);
   };
 
-  const clearPurchased = async () => {
-    setWorking(true);
-    setError('');
-    try {
-      const response = await fetch(`${API}/shopping-list`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (response.status === 401) {
-        onSessionExpired();
-        return;
-      }
-      const data = await readJson(response);
-      if (!response.ok || !data) throw new Error(data?.message || t('shoppingList.clearError'));
-      setShoppingList((current) => current
-        ? { ...current, items: current.items.filter((item) => !item.isChecked) }
-        : current);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t('shoppingList.clearError'));
-    } finally {
-      setWorking(false);
+  const grouped = useMemo(() => {
+    const map: Record<string, ShoppingItem[]> = {};
+    for (const cat of CATEGORY_ORDER) map[cat] = [];
+    for (const item of allItems) {
+      if (!map[item.category]) map[item.category] = [];
+      map[item.category].push(item);
     }
-  };
+    return map;
+  }, [allItems]);
 
-  const addManualItem = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const name = manualName.trim();
-    const qty = Number(manualQty);
-    if (!name || !Number.isFinite(qty) || qty <= 0) return;
+  const total = allItems.length;
+  const done = allItems.filter((i) => i.checked).length;
+  const progress = total === 0 ? 0 : Math.round((done / total) * 100);
 
-    setWorking(true);
-    setError('');
-    try {
-      const response = await fetch(`${API}/shopping-list/item`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ name, qty, unit: manualUnit }),
-      });
-      if (response.status === 401) {
-        onSessionExpired();
-        return;
-      }
-      const item = await readJson(response);
-      if (!response.ok || !item) throw new Error(item?.message || t('shoppingList.updateError'));
-      setShoppingList((current) => current
-        ? { ...current, items: [...current.items, item] }
-        : { weekPlanId: 0, familyMembersCount: 1, items: [item] });
-      setManualName('');
-      setManualQty('1');
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : t('shoppingList.updateError'));
-    } finally {
-      setWorking(false);
+  const catLabel = (cat: string) => {
+    if (cat === "Added by you") {
+      return `➕ ${t("shoppingList.manualItems", { defaultValue: "Added by you" })}`;
     }
+    return t(`shoppingList.categories.${cat}`, { defaultValue: cat });
   };
-
-  const mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'];
-  const visibleItems = shoppingList?.items ?? [];
-  const checkedCount = visibleItems.filter((item) => item.isChecked).length;
 
   return (
-    <main className="min-h-screen bg-linear-to-br from-emerald-50 via-teal-50 to-cyan-50 px-4 py-8 sm:px-6 lg:py-10">
-      <div className="mx-auto max-w-4xl space-y-6">
-        <header className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={onBack}
-              aria-label={t('shoppingList.back')}
-              className="grid h-11 w-11 place-items-center rounded-2xl border border-emerald-200 bg-white text-emerald-800 shadow-lg shadow-emerald-900/5 transition hover:bg-emerald-50"
-            >
-              <ArrowLeft aria-hidden="true" className="h-5 w-5 rtl:rotate-180" />
-            </button>
-            <div>
-              <h1 className="text-2xl font-bold text-emerald-950">{t('shoppingList.title')}</h1>
-              <p className="mt-1 text-sm text-gray-600">
-                {t('shoppingList.familySize', { count: shoppingList?.familyMembersCount ?? 1 })}
-              </p>
-            </div>
-          </div>
+    <div className="min-h-screen bg-neutral-50 px-4 py-8 sm:px-8">
+      <div className="mx-auto max-w-3xl">
+        <div className="mb-6 flex items-center gap-4">
           <button
-            type="button"
-            onClick={() => void clearPurchased()}
-            disabled={working || checkedCount === 0}
-            className="flex items-center gap-2 rounded-2xl border border-emerald-200 bg-white px-4 py-2.5 text-sm font-semibold text-emerald-800 shadow-lg shadow-emerald-900/5 transition hover:bg-emerald-50 disabled:opacity-50"
+            onClick={onBack}
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-neutral-300 bg-white text-black hover:border-black"
+            aria-label={t("shoppingList.back", { defaultValue: "Back" })}
           >
-            <Check aria-hidden="true" className="h-4 w-4" />
-            {t('shoppingList.clearPurchased')}
+            ←
           </button>
-        </header>
-
-        {error && <p role="alert" className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-800">{error}</p>}
-        <form onSubmit={addManualItem} className="grid gap-2 rounded-2xl bg-white p-4 shadow-lg shadow-emerald-900/5 sm:grid-cols-[minmax(0,1fr)_7rem_8rem_auto]">
-          <input
-            value={manualName}
-            onChange={(event) => setManualName(event.target.value)}
-            required
-            placeholder={t('shoppingList.manualPlaceholder')}
-            aria-label={t('shoppingList.manualPlaceholder')}
-            className="min-w-0 rounded-xl border border-emerald-100 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
-          />
-          <input
-            type="number"
-            min="0.1"
-            step="0.1"
-            value={manualQty}
-            onChange={(event) => setManualQty(event.target.value)}
-            aria-label={t('shoppingList.quantity')}
-            className="rounded-xl border border-emerald-100 px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
-          />
-          <select
-            value={manualUnit}
-            onChange={(event) => setManualUnit(event.target.value)}
-            aria-label={t('shoppingList.unit')}
-            className="rounded-xl border border-emerald-100 bg-white px-3 py-2.5 text-sm outline-none focus:border-emerald-400"
-          >
-            <option value="g">{t('shoppingList.units.g')}</option>
-            <option value="kg">{t('shoppingList.units.kg')}</option>
-            <option value="piece">{t('shoppingList.units.piece')}</option>
-            <option value="liter">{t('shoppingList.units.liter')}</option>
-          </select>
-          <button disabled={working} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50">
-            {t('shoppingList.addItem')}
-          </button>
-        </form>
-        {loading ? (
-          <div className="space-y-4" aria-label={t('shoppingList.loading')}>
-            {[0, 1, 2].map((item) => <div key={item} className="h-36 animate-pulse rounded-2xl bg-white shadow-lg shadow-emerald-900/5" />)}
-          </div>
-        ) : visibleItems.length === 0 ? (
-          <section className="rounded-2xl bg-white p-8 text-center shadow-lg shadow-emerald-900/5">
-            <ShoppingBasket aria-hidden="true" className="mx-auto h-9 w-9 text-emerald-600" />
-            <p className="mt-3 font-semibold text-gray-900">{t('shoppingList.empty')}</p>
-            <p className="mt-1 text-sm text-gray-600">{t('shoppingList.emptyHint')}</p>
-          </section>
-        ) : (
-          <div className="space-y-4">
-            {mealTypes.map((mealType) => {
-              const items = visibleItems.filter((item) => item.sources.some((source) => source.mealType === mealType));
-              if (items.length === 0) return null;
-              return (
-                <section key={mealType} className="overflow-hidden rounded-2xl bg-white shadow-lg shadow-emerald-900/5">
-                  <h2 className="border-b border-emerald-100 bg-emerald-50 px-5 py-3 text-sm font-bold text-emerald-900">
-                    {t(`weekPlan.meals.${mealType}`)}
-                  </h2>
-                  <ul className="divide-y divide-gray-100 px-4">
-                    {items.map((item) => (
-                      <li key={`${mealType}-${item.id}`}>
-                        <label className="flex cursor-pointer items-center gap-3 py-3 transition-colors hover:bg-emerald-50">
-                          <input
-                            type="checkbox"
-                            checked={item.isChecked}
-                            disabled={working}
-                            onChange={() => void toggleItem(item)}
-                            className="h-5 w-5 shrink-0 accent-emerald-600"
-                          />
-                          <span className={`min-w-0 flex-1 text-sm font-medium ${item.isChecked ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
-                            {item.name}
-                          </span>
-                          <span className="shrink-0 text-xs font-semibold text-emerald-800">
-                            {Number.isInteger(item.quantity) ? item.quantity : Number(item.quantity.toFixed(1))} {t(`shoppingList.units.${item.unit}`, { defaultValue: item.unit })}
-                          </span>
-                        </label>
-                        <p className="-mt-2 pb-2 ps-8 text-xs text-gray-500">
-                          {t('shoppingList.usedFor', { recipes: [...new Set(item.sources.filter((source) => source.mealType === mealType).map((source) => source.recipeName))].join(', ') })}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              );
-            })}
-            {visibleItems.some((item) => item.source === 'manual') && (
-              <section className="overflow-hidden rounded-2xl bg-white shadow-lg shadow-emerald-900/5">
-                <h2 className="border-b border-emerald-100 bg-emerald-50 px-5 py-3 text-sm font-bold text-emerald-900">
-                  {t('shoppingList.manualItems')}
-                </h2>
-                <ul className="divide-y divide-gray-100 px-4">
-                  {visibleItems.filter((item) => item.source === 'manual').map((item) => (
-                    <li key={`manual-${item.id}`}>
-                      <label className="flex cursor-pointer items-center gap-3 py-3 hover:bg-emerald-50">
-                        <input type="checkbox" checked={item.isChecked} disabled={working} onChange={() => void toggleItem(item)} className="h-5 w-5 accent-emerald-600" />
-                        <span className={`min-w-0 flex-1 text-sm font-medium ${item.isChecked ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{item.name}</span>
-                        <span className="text-xs font-semibold text-emerald-800">{Number.isInteger(item.quantity) ? item.quantity : Number(item.quantity.toFixed(1))} {t(`shoppingList.units.${item.unit}`, { defaultValue: item.unit })}</span>
-                      </label>
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-            <p className="flex items-center gap-2 px-1 text-xs text-gray-500">
-              <ListChecks aria-hidden="true" className="h-4 w-4" />
-              {t('shoppingList.estimatedAmounts')}
+          <div className="flex-1">
+            <h1 className="text-2xl font-bold text-black">
+              {t("shoppingList.title", { defaultValue: "Shopping list" })}
+            </h1>
+            <p className="text-sm text-neutral-500">
+              {t("shoppingList.familySize", {
+                count: 1,
+                defaultValue: "Quantities for 1 family members",
+              })}
             </p>
           </div>
-        )}
+        </div>
+
+        <div className="mb-6 rounded-2xl border border-neutral-200 bg-white p-5">
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm font-medium text-black">
+              {t("shoppingList.itemsProgress", {
+                done,
+                total,
+                defaultValue: `${done} of ${total} items`,
+              })}
+            </span>
+            <span className="text-sm font-semibold text-black">
+              {progress}%
+            </span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-neutral-200">
+            <div
+              className="h-full rounded-full bg-black transition-all"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+
+        {CATEGORY_ORDER.map((cat) => {
+          const list = grouped[cat];
+          if (!list || list.length === 0) return null;
+          return (
+            <section key={cat} className="mb-8">
+              <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-black">
+                {catLabel(cat)}
+              </h2>
+              <div className="flex flex-col gap-2">
+                {list.map((item) => (
+                  <ShoppingItemRow
+                    key={item.id}
+                    item={item}
+                    onToggle={toggle}
+                    onDelete={cat === "Added by you" ? remove : undefined}
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })}
+
+        <button
+          onClick={() => setModalOpen(true)}
+          className="fixed bottom-6 right-6 flex h-14 w-14 items-center justify-center rounded-full bg-black text-2xl text-white shadow-lg hover:bg-neutral-800"
+          aria-label={t("shoppingList.addItem", { defaultValue: "Add item" })}
+        >
+          +
+        </button>
+
+        <AddItemModal
+          open={modalOpen}
+          onClose={() => setModalOpen(false)}
+          onAdd={addItem}
+        />
       </div>
-    </main>
+    </div>
   );
 }
-
-export default ShoppingList;

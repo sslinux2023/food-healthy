@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { CreateUserDto } from './dto/create-user.dto.js';
 import { UpdateOnboardingDto } from './dto/update-onboarding.dto.js';
 import { UpdateCheckInDto } from './dto/update-check-in.dto.js';
+import { computeConstitution } from './utils/constitution.util.js';
 
 @Injectable()
 export class UserService {
@@ -44,7 +45,9 @@ export class UserService {
       gain_weight: 500,
       health: 0,
     };
-    const dailyCalories = tdee + (goalAdjust[goal ?? 'health'] ?? 0);
+    // ⭐ SAFETY FLOOR: never prescribe less than 1200 kcal
+    const rawCalories = tdee + (goalAdjust[goal ?? 'health'] ?? 0);
+    const dailyCalories = Math.max(Math.round(rawCalories), 1200);
 
     const proteinFactor: Record<string, number> = {
       lose_weight: 2.0,
@@ -75,6 +78,25 @@ export class UserService {
     };
   }
 
+  // ⭐ NEW (Task 2): warn — never block — when goal conflicts with BMI range
+  private getGoalWarning(bmi: number | null | undefined, goal: string | null | undefined) {
+    if (bmi == null || !goal) return null;
+
+    const normalizedGoal = goal.replace('_', ''); // يتعامل مع lose_weight و weight_loss
+    const isLose = normalizedGoal === 'loseweight';
+    const isGain = normalizedGoal === 'gainweight';
+
+    // حالة amina: BMI 25.4 (overweight) + gain_weight
+    if (bmi >= 25 && isGain) {
+      return 'BMI_OVER_GAIN';
+    }
+    // الحالة العكسية: نحيف بزاف + كيبغي ينقص
+    if (bmi < 18.5 && isLose) {
+      return 'BMI_UNDER_LOSE';
+    }
+    return null;
+  }
+
   create(createUserDto: CreateUserDto) {
     return this.prisma.user.create({
       data: createUserDto,
@@ -96,6 +118,7 @@ export class UserService {
         goal: true,
         lifestyle: true,
         weeklyBudget: true,
+        constitutionType: true,
         createdAt: true,
         onboardingCompleted: true,
       },
@@ -127,6 +150,7 @@ export class UserService {
         foodPreferences: true,
         foodDislikes: true,
         familyMembersCount: true,
+        constitutionType: true,
         bmi: true,
         tdee: true,
         dailyCalories: true,
@@ -145,26 +169,39 @@ export class UserService {
     }
 
     const nutrition = this.calculateNutrition(user);
-    if (
+    const needsUpdate =
       nutrition &&
-      Object.entries(nutrition).some(([key, value]) => user[key as keyof typeof user] !== value)
-    ) {
+      Object.entries(nutrition).some(
+        ([key, value]) => user[key as keyof typeof user] !== value,
+      );
+
+    // ⭐ NEW: attach goal warning so the dashboard banner can render
+    const goalWarning = this.getGoalWarning(user.bmi, user.goal);
+
+    if (needsUpdate) {
       await this.prisma.user.update({ where: { id: userId }, data: nutrition });
-      return { ...user, ...nutrition };
+      return { ...user, ...nutrition, goalWarning };
     }
 
-    return user;
+    return { ...user, goalWarning };
   }
 
   async updateOnboarding(userId: number, dto: UpdateOnboardingDto) {
     const nutrition = this.calculateNutrition(dto);
 
-    return this.prisma.user.update({
+    // ⭐ Compute constitution type from BMI + goal
+    let constitutionType: string | undefined;
+    if (nutrition?.bmi !== undefined) {
+      constitutionType = computeConstitution(nutrition.bmi, dto.goal ?? 'health');
+    }
+
+    const result = await this.prisma.user.update({
       where: { id: userId },
       data: {
         ...dto,
         onboardingCompleted: true,
         ...nutrition,
+        constitutionType,
       },
       select: {
         id: true,
@@ -178,6 +215,7 @@ export class UserService {
         weight: true,
         goal: true,
         lifestyle: true,
+        constitutionType: true,
         bmi: true,
         tdee: true,
         dailyCalories: true,
@@ -189,6 +227,12 @@ export class UserService {
         idealWeightMax: true,
       },
     });
+
+    // ⭐ NEW (Task 2): was MISSING — updateOnboarding returned undefined!
+    return {
+      ...result,
+      goalWarning: this.getGoalWarning(result.bmi, result.goal),
+    };
   }
 
   private getUtcDayRange(localDate?: string) {
@@ -331,6 +375,7 @@ export class UserService {
         goal: true,
         lifestyle: true,
         weeklyBudget: true,
+        constitutionType: true,
         onboardingCompleted: true,
         createdAt: true,
       },

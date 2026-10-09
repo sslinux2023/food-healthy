@@ -1,7 +1,7 @@
 {
   "app": {
     "title": "Food Healthy",
-    "tagline": "راس مالك صحتك"
+    "tagline": "Your health is your wealth"
   },
   "auth": {
     "register": "Register",
@@ -180,13 +180,33 @@
     "unit": "Unit",
     "addItem": "Add item",
     "manualItems": "Added by you",
+    "itemsProgress": "{{done}} of {{total}} items",
+    "remove": "Remove",
+    "categories": {
+      "Breakfast": "Breakfast",
+      "Lunch": "Lunch",
+      "Snack": "Snack"
+    },
+    "addModal": {
+      "title": "Add an item",
+      "subtitle": "It will appear at the top of your list.",
+      "product": "Product",
+      "productPlaceholder": "e.g. Olive oil",
+      "quantity": "Quantity",
+      "unit": "Unit",
+      "cancel": "Cancel",
+      "add": "Add to list"
+    },
     "units": {
       "g": "g",
       "kg": "kg",
       "ml": "ml",
       "liter": "L",
       "piece": "pieces",
-      "portion": "portions"
+      "pieces": "pieces",
+      "portion": "portions",
+      "tbsp": "tbsp",
+      "tsp": "tsp"
     },
     "emptyHint": "Add ingredients from your weekly plan or type an item above."
   },
@@ -198,7 +218,11 @@
     "ringLabel": "Health score: {{score}} out of 100",
     "history": "Last 30 days",
     "historyEmpty": "Your score history will appear after your next daily check-in.",
-    "components": { "bmi": "BMI", "water": "Water", "meals": "Meals" },
+    "components": {
+      "bmi": "BMI",
+      "water": "Water",
+      "meals": "Meals"
+    },
     "bmiUnderweightTip": "Your BMI is {{bmi}} (underweight). A health professional can help you choose a safe weight-gain target.",
     "bmiOverweightTip": "Your BMI is {{bmi}} (above the healthy range). Losing about {{kilos}} kg would put you near the healthy range (maximum {{maxWeight}} kg).",
     "waterGoodTip": "Well hydrated today!",

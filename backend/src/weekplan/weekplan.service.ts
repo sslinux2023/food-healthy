@@ -9,13 +9,23 @@ interface RecipeLite {
   tags: string;
 }
 
+const MAX_USES_PER_WEEK = 3;
+
 @Injectable()
 export class WeekPlanService {
   constructor(private prisma: PrismaService) {}
 
   private isDisliked(recipe: RecipeLite, dislikes: string[]) {
+    if (dislikes.length === 0) return false;
     const searchableText = `${recipe.name} ${recipe.ingredients}`.toLowerCase();
-    return dislikes.some((dislike) => searchableText.includes(dislike));
+
+    return dislikes.some((dislike) => {
+      const d = dislike.trim().toLowerCase();
+      if (!d) return false;
+      const escaped = d.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(`\\b${escaped}\\b`, 'i');
+      return pattern.test(searchableText);
+    });
   }
 
   private pickClosest(
@@ -23,22 +33,29 @@ export class WeekPlanService {
     target: number,
     dislikes: string[],
     usageCounts: Map<number, number>,
-    recentlyUsedIds: number[] = [],
   ) {
-    const validRecipes = recipes.filter((r): r is RecipeLite & { calories: number } => r.calories !== null);
+    const validRecipes = recipes.filter(
+      (r): r is RecipeLite & { calories: number } => r.calories !== null,
+    );
     const pool = validRecipes.filter((recipe) => !this.isDisliked(recipe, dislikes));
     if (pool.length === 0) {
-      throw new BadRequestException('No recipes available for this meal type after applying food dislikes');
+      throw new BadRequestException(
+        'No recipes available for this meal type after applying food dislikes',
+      );
     }
 
-    const candidates = pool.filter((recipe) => (usageCounts.get(recipe.id) ?? 0) < 2);
+    let candidates = pool.filter(
+      (recipe) => (usageCounts.get(recipe.id) ?? 0) < MAX_USES_PER_WEEK,
+    );
+
+    // Fallback: everyone is at cap → reuse the least-used one instead of crashing
     if (candidates.length === 0) {
-      throw new BadRequestException('Not enough distinct recipes to keep weekly repetition below three');
+      const minUses = Math.min(...pool.map((r) => usageCounts.get(r.id) ?? 0));
+      candidates = pool.filter((r) => (usageCounts.get(r.id) ?? 0) === minUses);
     }
-    const notRecent = candidates.filter((recipe) => !recentlyUsedIds.includes(recipe.id));
-    const viablePool = notRecent.length > 0 ? notRecent : candidates;
-    const unused = viablePool.filter((recipe) => (usageCounts.get(recipe.id) ?? 0) === 0);
-    const finalPool = unused.length > 0 ? unused : viablePool;
+
+    const unused = candidates.filter((recipe) => (usageCounts.get(recipe.id) ?? 0) === 0);
+    const finalPool = unused.length > 0 ? unused : candidates;
 
     return finalPool.reduce((best, r) =>
       Math.abs(r.calories - target) < Math.abs(best.calories - target) ? r : best,
@@ -86,13 +103,16 @@ export class WeekPlanService {
     const snacks = await this.prisma.recipe.findMany({ where: { mealType: 'snack', calories: { not: null } } });
 
     const recipePools = { breakfast: breakfasts, lunch: lunches, dinner: dinners, snack: snacks };
+
+    // Relaxed: only fail if a meal type has zero options after dislikes
     for (const [mealType, recipes] of Object.entries(recipePools)) {
       const allowedCount = recipes.filter(
         (recipe) => recipe.calories !== null && !this.isDisliked(recipe, dislikes),
       ).length;
-      if (allowedCount < 4) {
+      if (allowedCount < 1) {
         throw new BadRequestException(
-          `At least 4 non-disliked ${mealType} recipes are needed to prevent weekly repeats`,
+          `No ${mealType} recipes available after applying food dislikes. ` +
+          `Try removing some dislikes, or add more ${mealType} recipes.`,
         );
       }
     }
@@ -123,49 +143,16 @@ export class WeekPlanService {
       dinner: new Map(),
       snack: new Map(),
     };
-    const recentlyUsedByMealType: Record<string, number[]> = {
-      breakfast: [],
-      lunch: [],
-      dinner: [],
-      snack: [],
-    };
 
     for (let day = 0; day < 7; day++) {
-      const breakfast = this.pickClosest(
-        breakfasts,
-        slotTargets.breakfast,
-        dislikes,
-        usageByMealType.breakfast,
-        recentlyUsedByMealType.breakfast,
-      );
-      const lunch = this.pickClosest(
-        lunches,
-        slotTargets.lunch,
-        dislikes,
-        usageByMealType.lunch,
-        recentlyUsedByMealType.lunch,
-      );
-      const dinner = this.pickClosest(
-        dinners,
-        slotTargets.dinner,
-        dislikes,
-        usageByMealType.dinner,
-        recentlyUsedByMealType.dinner,
-      );
-      const snack = this.pickClosest(
-        snacks,
-        slotTargets.snack,
-        dislikes,
-        usageByMealType.snack,
-        recentlyUsedByMealType.snack,
-      );
+      const breakfast = this.pickClosest(breakfasts, slotTargets.breakfast, dislikes, usageByMealType.breakfast);
+      const lunch = this.pickClosest(lunches, slotTargets.lunch, dislikes, usageByMealType.lunch);
+      const dinner = this.pickClosest(dinners, slotTargets.dinner, dislikes, usageByMealType.dinner);
+      const snack = this.pickClosest(snacks, slotTargets.snack, dislikes, usageByMealType.snack);
 
       for (const [mealType, recipe] of Object.entries({ breakfast, lunch, dinner, snack })) {
         const usage = usageByMealType[mealType];
         usage.set(recipe.id, (usage.get(recipe.id) ?? 0) + 1);
-        const recent = recentlyUsedByMealType[mealType];
-        recent.push(recipe.id);
-        if (recent.length > 2) recent.shift();
       }
 
       mealsToCreate.push(
@@ -247,7 +234,7 @@ export class WeekPlanService {
       if (this.isDisliked(meal.recipe, dislikes)) planViolatesPreferences = true;
       const useCount = (recipeUseCounts.get(meal.recipeId) ?? 0) + 1;
       recipeUseCounts.set(meal.recipeId, useCount);
-      if (useCount > 2) planViolatesPreferences = true;
+      if (useCount > MAX_USES_PER_WEEK) planViolatesPreferences = true;
 
       const recentlyUsedIds = recentlyUsedByMealType[meal.mealType] ?? [];
       if (recentlyUsedIds.includes(meal.recipeId)) planViolatesPreferences = true;

@@ -16,6 +16,7 @@ import {
 import ShoppingList from './ShoppingList.tsx';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
 const recipeTranslationKeys: Record<string, string> = {
   'Moroccan Mint Tea & Msemen': 'mintTeaMsemen',
   'Harcha with Cheese': 'harchaCheese',
@@ -59,6 +60,8 @@ const rowVariants = {
 
 interface DashboardProps {
   user: {
+    id?: number;
+    email?: string;
     firstName: string;
     bmi?: number;
     dailyCalories?: number;
@@ -66,10 +69,12 @@ interface DashboardProps {
     goal?: string;
     height?: number;
     weight?: number;
+    idealWeightMin?: number;
     idealWeightMax?: number;
     proteinGrams?: number;
     carbGrams?: number;
     fatGrams?: number;
+    goalWarning?: string | null;
   };
   onLogout: () => void;
   onSessionExpired: () => void;
@@ -226,16 +231,12 @@ function Dashboard({ user, onLogout, onSessionExpired, token }: DashboardProps) 
 
   useEffect(() => {
     if (!token) return;
-
     const fetchCheckIn = async () => {
       try {
         const response = await fetch(`${API}/user/checkin?date=${localDate}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (response.status === 401) {
-          onSessionExpired();
-          return;
-        }
+        if (response.status === 401) { onSessionExpired(); return; }
         const data = await safeJson(response);
         if (!response.ok || !data) throw new Error(t('dailyCheckIn.loadError'));
         setCheckIn(data);
@@ -245,22 +246,17 @@ function Dashboard({ user, onLogout, onSessionExpired, token }: DashboardProps) 
         setLoadingCheckIn(false);
       }
     };
-
     void fetchCheckIn();
   }, [token, t, localDate, onSessionExpired]);
 
   useEffect(() => {
     if (!token) return;
-
     const fetchHealthScore = async () => {
       try {
         const response = await fetch(`${API}/health-score?date=${localDate}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (response.status === 401) {
-          onSessionExpired();
-          return;
-        }
+        if (response.status === 401) { onSessionExpired(); return; }
         const data = await safeJson(response);
         if (!response.ok || !data) throw new Error(t('healthScore.loadError'));
         setHealthScore(data);
@@ -268,7 +264,6 @@ function Dashboard({ user, onLogout, onSessionExpired, token }: DashboardProps) 
         setHealthScoreError(err instanceof Error ? err.message : t('healthScore.loadError'));
       }
     };
-
     void fetchHealthScore();
   }, [token, t, localDate, checkIn, onSessionExpired]);
 
@@ -280,10 +275,7 @@ function Dashboard({ user, onLogout, onSessionExpired, token }: DashboardProps) 
         const response = await fetch(`${API}/health-score/history`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (response.status === 401) {
-          onSessionExpired();
-          return;
-        }
+        if (response.status === 401) { onSessionExpired(); return; }
         const data = await safeJson(response);
         if (!response.ok || !Array.isArray(data)) return;
         if (!cancelled) setHealthScoreHistory(data);
@@ -297,39 +289,23 @@ function Dashboard({ user, onLogout, onSessionExpired, token }: DashboardProps) 
 
   useEffect(() => {
     if (!token) return;
-
     const fetchWeekPlan = async () => {
       try {
         const response = await fetch(`${API}/weekplan`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (response.status === 401) {
-          onSessionExpired();
-          return;
-        }
-
+        if (response.status === 401) { onSessionExpired(); return; }
         if (!response.ok) {
-          if (response.status === 404) {
-            setWeekPlan(null);
-            return;
-          }
+          if (response.status === 404) { setWeekPlan(null); return; }
           throw new Error(t('weekPlan.loadError'));
         }
-
         const data = await safeJson(response);
-        if (data) {
-          setWeekPlan(data);
-          return;
-        }
-
+        if (data) { setWeekPlan(data); return; }
         const generateResponse = await fetch(`${API}/weekplan/generate`, {
           method: 'POST',
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (generateResponse.status === 401) {
-          onSessionExpired();
-          return;
-        }
+        if (generateResponse.status === 401) { onSessionExpired(); return; }
         if (!generateResponse.ok) throw new Error(t('weekPlan.generateError'));
         setWeekPlan(await safeJson(generateResponse));
       } catch (err) {
@@ -338,7 +314,6 @@ function Dashboard({ user, onLogout, onSessionExpired, token }: DashboardProps) 
         setLoadingPlan(false);
       }
     };
-
     void fetchWeekPlan();
   }, [token, t, onSessionExpired]);
 
@@ -346,7 +321,6 @@ function Dashboard({ user, onLogout, onSessionExpired, token }: DashboardProps) 
     if (!token) return;
     setLoadingPlan(true);
     setPlanError('');
-
     try {
       const response = await fetch(`${API}/weekplan/generate`, {
         method: 'POST',
@@ -355,10 +329,7 @@ function Dashboard({ user, onLogout, onSessionExpired, token }: DashboardProps) 
           Authorization: `Bearer ${token}`,
         },
       });
-      if (response.status === 401) {
-        onSessionExpired();
-        return;
-      }
+      if (response.status === 401) { onSessionExpired(); return; }
       if (!response.ok) throw new Error(t('weekPlan.generateError'));
       setWeekPlan((await safeJson(response)) ?? null);
     } catch (err) {
@@ -372,7 +343,6 @@ function Dashboard({ user, onLogout, onSessionExpired, token }: DashboardProps) 
     if (!token) return;
     setUpdatingCheckIn(true);
     setCheckInError('');
-
     try {
       const response = await fetch(`${API}/user/checkin`, {
         method: 'PATCH',
@@ -382,10 +352,7 @@ function Dashboard({ user, onLogout, onSessionExpired, token }: DashboardProps) 
         },
         body: JSON.stringify({ ...update, localDate }),
       });
-      if (response.status === 401) {
-        onSessionExpired();
-        return;
-      }
+      if (response.status === 401) { onSessionExpired(); return; }
       const data = await safeJson(response);
       if (!response.ok || !data) {
         throw new Error(data?.message || t('dailyCheckIn.updateError'));
@@ -419,10 +386,15 @@ function Dashboard({ user, onLogout, onSessionExpired, token }: DashboardProps) 
       ? 'stroke-amber-500'
       : 'stroke-emerald-600';
 
+  // Per-user key so different accounts don't share shopping list items
+  const userKey = user.email ?? (user.id != null ? String(user.id) : user.firstName);
+
   if (page === 'shopping') {
     return (
       <ShoppingList
+        key={userKey}
         token={token ?? ''}
+        userKey={userKey}
         onBack={() => setPage('dashboard')}
         onSessionExpired={onSessionExpired}
       />
@@ -483,6 +455,36 @@ function Dashboard({ user, onLogout, onSessionExpired, token }: DashboardProps) 
             </p>
           </article>
         </motion.section>
+
+        {user.goalWarning === 'BMI_OVER_GAIN' && (
+          <motion.aside variants={rowVariants} className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 shadow-sm">
+            <span className="text-xl" aria-hidden="true">⚠️</span>
+            <div className="text-right">
+              <p className="font-semibold text-amber-900">
+                هدفك هو زيادة الوزن، لكن مؤشر كتلة جسمك {user.bmi} — فوق النطاق الصحي
+              </p>
+              <p className="mt-1 text-sm text-amber-800">
+                ننصحك تبدأ بـ "الحفاظ على الوزن" أو "إنقاص الوزن" حتى تصل إلى
+                {' '}{user.idealWeightMin} - {user.idealWeightMax} كغ، ثم انتقل لبناء العضلات.
+              </p>
+            </div>
+          </motion.aside>
+        )}
+
+        {user.goalWarning === 'BMI_UNDER_LOSE' && (
+          <motion.aside variants={rowVariants} className="flex items-start gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4 shadow-sm">
+            <span className="text-xl" aria-hidden="true">⚠️</span>
+            <div className="text-right">
+              <p className="font-semibold text-amber-900">
+                هدفك هو إنقاص الوزن، لكن مؤشر كتلة جسمك {user.bmi} — نحافظ بزاف
+              </p>
+              <p className="mt-1 text-sm text-amber-800">
+                النطاق الصحي لطولك هو {user.idealWeightMin} - {user.idealWeightMax} كغ.
+                ننصحك بزيادة الوزن الصحية أولاً.
+              </p>
+            </div>
+          </motion.aside>
+        )}
 
         {typeof user.bmi === 'number' && (user.bmi < 18.5 || user.bmi >= 25) && (
           <motion.aside variants={rowVariants} className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950 shadow-sm">
